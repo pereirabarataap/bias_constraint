@@ -7,7 +7,7 @@ from random import seed
 from copy import deepcopy as copy
 from joblib import delayed, Parallel
 
-class BiasConstraintDecisionTree():
+class BiasConstraintDecisionTreeClassifier():
     def __init__(self,
         n_bins=10, min_leaf=5, max_depth=3, n_samples=1.0, n_features=1.0, boot_replace=False, random_state=42,
         criterion="entropy/auc", bias_method="avg/w_avg/xtr", compound_bias_method="avg/xtr", orthogo_coef=1.0
@@ -353,7 +353,7 @@ class BiasConstraintDecisionTree():
             
     
     def __str__(self):
-        string = "BiasConstraintDecisionTree():" + "\n" + \
+        string = "BiasConstraintDecisionTreeClassifier():" + "\n" + \
                 "  is_fit=" + str(self.is_fit) + "\n" + \
                 "  n_bins=" + str(self.n_bins) + "\n" + \
                 "  min_leaf=" + str(self.min_leaf) + "\n" + \
@@ -369,7 +369,7 @@ class BiasConstraintDecisionTree():
         return string
 
     def __repr__(self):
-        string = "BiasConstraintDecisionTree():" + "\n" + \
+        string = "BiasConstraintDecisionTreeClassifier():" + "\n" + \
                 "  is_fit=" + str(self.is_fit) + "\n" + \
                 "  n_bins=" + str(self.n_bins) + "\n" + \
                 "  min_leaf=" + str(self.min_leaf) + "\n" + \
@@ -384,7 +384,7 @@ class BiasConstraintDecisionTree():
                 "  compound_bias_method=" + str(self.compound_bias_method)
         return string
     
-class BiasConstraintForestClassifier():
+class BiasConstraintRandomForestClassifier():
     def __init__(self, n_estimators=500, n_jobs=-1,
         n_bins=10, min_leaf=5, max_depth=3, n_samples=1.0, n_features=1.0, boot_replace=True, random_state=42,
         criterion="auc", bias_method="avg", compound_bias_method="avg", orthogo_coef=1.0
@@ -450,7 +450,7 @@ class BiasConstraintForestClassifier():
         
         # Generating BCDForest
         dts = [
-            BiasConstraintDecisionTree(
+            BiasConstraintDecisionTreeClassifier(
                 n_bins=copy(self.n_bins),
                 min_leaf=copy(self.min_leaf),
                 max_depth=copy(self.max_depth),
