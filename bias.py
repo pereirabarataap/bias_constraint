@@ -1,11 +1,118 @@
 import warnings
 import numpy as np
+import pandas as pd
 from tqdm import tqdm
 from math import ceil
 import multiprocessing
 from random import seed
 from copy import deepcopy as copy
+from scipy.optimize import minimize
 from joblib import delayed, Parallel
+from scipy.special import expit as sigmoid
+
+class BiasConstraintLogisticRegression():
+    
+    def __init__(self, lamb=0, ortho=1, add_intersect=True, ortho_method="avg", random_state=42):
+        
+        self.lamb=lamb
+        self.ortho=ortho
+        self.is_fit=False
+        self.ortho_method=ortho_method
+        self.random_state=random_state
+        self.add_intersect=add_intersect
+        
+        seed(random_state)
+        np.random.seed(random_state)
+    
+    def fit(self, X, y, s):
+        def loss(coefs, X, y, s, lamb=1, ortho=1, add_intersect=True, ortho_method="avg"):
+            def corr2_coeff(A, B):
+                # Rowwise mean of input arrays & subtract from input arrays themeselves
+                A_mA = A - A.mean(1)[:, None]
+                B_mB = B - B.mean(1)[:, None]
+
+                # Sum of squares across rows
+                ssA = (A_mA**2).sum(1)
+                ssB = (B_mB**2).sum(1)
+
+                # Finally get corr coeff
+                return np.dot(A_mA, B_mB.T) / np.sqrt(np.dot(ssA[:, None],ssB[None]))
+            
+            if add_intersect:
+                b = coefs[-1]
+                w = coefs[:-1]
+            else:
+                b = 0
+                w = coefs[:]
+            score = np.dot(X,w)+b
+            pred = sigmoid(score)
+            
+            #cap in official Kaggle implementation
+            #per forums/t/1576/r-code-for-logloss
+            epsilon = 1e-15
+            pred = np.maximum(epsilon, pred)
+            pred = np.minimum(1-epsilon, pred)
+            
+            loss = sum(y*np.log(pred) + np.subtract(1,y)*np.log(np.subtract(1,pred))) * -1.0 / len(y)
+            
+            #l1 norm regularisation
+            l1_reg = np.linalg.norm(w, ord=1)
+
+            # corelation coef **2
+            score = score.reshape(len(score), 1)
+            if ortho_method=="avg":
+                sens_reg = sum(
+                    corr2_coeff(s.T,score.T).ravel()**2
+                ) / s.shape[1]
+            elif ortho_method=="max":
+                sens_reg = max(
+                    corr2_coeff(s.T,score.T).ravel()**2
+                )
+            elif ortho_method=="w_avg":
+                sens_reg = np.average(
+                    corr2_coeff(s.T,score.T).ravel()**2, weights=np.sum(s, axis=0)
+                )
+            elif ortho_method=="inv_w_avg":
+                sens_reg = np.average(
+                    corr2_coeff(s.T,score.T).ravel()**2, weights=len(s)/np.sum(s, axis=0)
+                )
+                
+            return loss + lamb*l1_reg + ortho*sens_reg
+        
+        seed(self.random_state)
+        np.random.seed(self.random_state)
+        y = np.array(y).astype(int)
+        s = pd.get_dummies(s).values.astype(int)
+        if self.add_intersect:
+            coefs = np.random.normal(size=(X.shape[1]+1))
+        else:
+            coefs = np.random.normal(size=(X.shape[1]))
+        
+        message = "failure"
+        while "success" not in message:
+            result = minimize(
+                fun=loss,
+                x0=coefs,
+                args=(X, y, s, self.lamb, self.ortho, self.add_intersect, self.ortho_method),
+                method="SLSQP",
+            )
+            message = result.message
+            coefs = result.x
+        w, b = coefs[:-1], coefs[-1]
+
+        if self.add_intersect:
+            self.w = w
+            self.b = b
+        else:
+            self.w = coefs
+            self.b = 0
+        
+        self.is_fit=True
+    
+    def predict(self, X):
+        
+        return np.dot(X, self.w) + self.b
+        
 
 class BiasConstraintDecisionTreeClassifier():
     def __init__(self,
@@ -263,7 +370,7 @@ class BiasConstraintDecisionTreeClassifier():
         
         # recursively grow the actual tree ---> {split1: {...}}
         def build_tree(indexs, step=0, old_score=-np.inf, new_score=-np.inf):
-            #print(indexs)
+            ##print(indexs)
             tree={}
             if (                
                 len(np.unique(self.y[indexs]))==1 or ( # no need to split if there is alreadyd only 1 y class
@@ -281,7 +388,7 @@ class BiasConstraintDecisionTreeClassifier():
                 if new_score==-np.inf: ## in case no more feature values exist for splitting
                     return indexs
                 
-                #print(indexs)
+                ##print(indexs)
                 left_indexs = indexs[self.X[indexs, feature]<=split_value]
                 right_indexs = indexs[self.X[indexs, feature]>split_value]
                 
