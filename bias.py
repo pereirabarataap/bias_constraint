@@ -81,6 +81,7 @@ class BiasConstraintLogisticRegression():
         
         seed(self.random_state)
         np.random.seed(self.random_state)
+        X = np.array(X).astype(float)
         y = np.array(y).astype(int)
         s = np.array(s).astype(str)
         s = pd.get_dummies(s).values.astype(int)
