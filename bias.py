@@ -82,6 +82,7 @@ class BiasConstraintLogisticRegression():
         seed(self.random_state)
         np.random.seed(self.random_state)
         y = np.array(y).astype(int)
+        s = np.array(s).astype(str)
         s = pd.get_dummies(s).values.astype(int)
         if self.add_intersect:
             coefs = np.random.normal(size=(X.shape[1]+1))
