@@ -110,9 +110,18 @@ class BiasConstraintLogisticRegression():
         self.is_fit=True
     
     def predict(self, X):
-        
+        """
+        Returns raw logit score (-int, +inf)
+        """
         return np.dot(X, self.w) + self.b
-        
+    
+    def predict_proba(self, X):
+        return np.array(
+            [
+                1-sigmoid(np.dot(X, self.w) + self.b),
+                sigmoid(np.dot(X, self.w) + self.b),
+            ]
+        ).T
 
 class BiasConstraintDecisionTreeClassifier():
     def __init__(self,
