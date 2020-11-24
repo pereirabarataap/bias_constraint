@@ -12,7 +12,7 @@ from scipy.special import expit as sigmoid
 
 class BiasConstraintLogisticRegression():
     
-    def __init__(self, ortho=1, min_retain_gain=0, add_intersect=True, ortho_method="avg", random_state=42):
+    def __init__(self, ortho=1, retain_factor=0, add_intersect=True, ortho_method="avg", random_state=42):
         """
         Logistic Regression with bias constraint
         
@@ -28,8 +28,10 @@ class BiasConstraintLogisticRegression():
         add_intersect -> bool:
             if True, no intercept is computed (b = 0)
             
-        min_retain_gain -> float: [0-1]
-            minimum relarive weight increase in ordered w values to retain coefs (l1-reg)
+        retain_factor -> float:
+            proportional to l1-reg strength
+            min_gain_increase = retain_factor/X.shape[1]
+            defines the minimum relative weight increase to retain coefs      
         """
         
         self.ortho=ortho
@@ -37,7 +39,7 @@ class BiasConstraintLogisticRegression():
         self.ortho_method=ortho_method
         self.random_state=random_state
         self.add_intersect=add_intersect
-        self.min_retain_gain=min_retain_gain
+        self.retain_factor=retain_factor
         
         seed(random_state)
         np.random.seed(random_state)
@@ -134,14 +136,15 @@ class BiasConstraintLogisticRegression():
             self.w = coefs
             self.b = 0
         
-        if self.min_retain_gain > 0:
+        if self.retain_factor > 0:
             # get useful weights 
             i = 0
             stop = False
+            min_gain_increase = self.retain_factor/X.shape[1]
             cum_sum_normalised_w = np.cumsum(np.array(sorted(abs(self.w), reverse=True)) / sum(abs(self.w)))
             while (not stop) and (i < len(self.w)-1):
                 gain = cum_sum_normalised_w[i+1] - cum_sum_normalised_w[i] 
-                if gain >= self.min_retain_gain: # if gain in cumdensity of weight is lower than proportion of weight
+                if gain >= min_gain_increase: # if gain in cumdensity of weight is lower than proportion of weight
                     i+=1
                 else:
                     stop=True
