@@ -12,7 +12,7 @@ from scipy.special import expit as sigmoid
 
 class BiasConstraintLogisticRegression():
     
-    def __init__(self, ortho=1, retain_factor=0, add_intersect=True, ortho_method="avg", random_state=42):
+    def __init__(self, ortho=1, l1_reg_factor=0, add_intersect=True, ortho_method="avg", random_state=42):
         """
         Logistic Regression with bias constraint
         
@@ -28,9 +28,9 @@ class BiasConstraintLogisticRegression():
         add_intersect -> bool:
             if True, no intercept is computed (b = 0)
             
-        retain_factor -> float:
+        l1_reg_factor -> float:
             proportional to l1-reg strength
-            min_gain_increase = retain_factor/X.shape[1]
+            min_gain_increase = l1_reg_factor/X.shape[1]
             defines the minimum relative weight increase to retain coefs      
         """
         
@@ -39,7 +39,7 @@ class BiasConstraintLogisticRegression():
         self.ortho_method=ortho_method
         self.random_state=random_state
         self.add_intersect=add_intersect
-        self.retain_factor=retain_factor
+        self.l1_reg_factor=l1_reg_factor
         
         seed(random_state)
         np.random.seed(random_state)
@@ -136,11 +136,11 @@ class BiasConstraintLogisticRegression():
             self.w = coefs
             self.b = 0
         
-        if self.retain_factor > 0:
+        if self.l1_reg_factor > 0:
             # get useful weights 
             i = 0
             stop = False
-            min_gain_increase = self.retain_factor/X.shape[1]
+            min_gain_increase = self.l1_reg_factor/X.shape[1]
             cum_sum_normalised_w = np.cumsum(np.array(sorted(abs(self.w), reverse=True)) / sum(abs(self.w)))
             while (not stop) and (i < len(self.w)-1):
                 gain = cum_sum_normalised_w[i+1] - cum_sum_normalised_w[i] 
