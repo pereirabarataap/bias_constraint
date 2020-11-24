@@ -53,7 +53,7 @@ class BiasConstraintLogisticRegression():
             pred = np.maximum(epsilon, pred)
             pred = np.minimum(1-epsilon, pred)
             
-            loss = sum(y*np.log(pred) + np.subtract(1,y)*np.log(np.subtract(1,pred))) * -1.0
+            loss = sum(y*np.log(pred) + np.subtract(1,y)*np.log(np.subtract(1,pred))) * -1.0 / len(y)
             
             #l1 norm regularisation
             l1_reg = np.linalg.norm(w, ord=1)
