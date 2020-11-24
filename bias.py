@@ -23,7 +23,7 @@ class BiasConstraintLogisticRegression():
         
         seed(random_state)
         np.random.seed(random_state)
-    
+
     def fit(self, X, y, s):
         def loss(coefs, X, y, s, lamb=1, ortho=1, add_intersect=True, ortho_method="avg"):
             def corr2_coeff(A, B):
@@ -53,30 +53,33 @@ class BiasConstraintLogisticRegression():
             pred = np.maximum(epsilon, pred)
             pred = np.minimum(1-epsilon, pred)
             
-            loss = sum(y*np.log(pred) + np.subtract(1,y)*np.log(np.subtract(1,pred))) * -1.0 / len(y)
+            loss = sum(y*np.log(pred) + np.subtract(1,y)*np.log(np.subtract(1,pred))) * -1.0
             
             #l1 norm regularisation
             l1_reg = np.linalg.norm(w, ord=1)
 
             # corelation coef **2
             score = score.reshape(len(score), 1)
-            if ortho_method=="avg":
-                sens_reg = sum(
-                    corr2_coeff(s.T,score.T).ravel()**2
-                ) / s.shape[1]
-            elif ortho_method=="max":
-                sens_reg = max(
-                    corr2_coeff(s.T,score.T).ravel()**2
-                )
-            elif ortho_method=="w_avg":
-                sens_reg = np.average(
-                    corr2_coeff(s.T,score.T).ravel()**2, weights=np.sum(s, axis=0)
-                )
-            elif ortho_method=="inv_w_avg":
-                sens_reg = np.average(
-                    corr2_coeff(s.T,score.T).ravel()**2, weights=len(s)/np.sum(s, axis=0)
-                )
-                
+            if len(np.unique(score))==1:
+                sens_reg = 1
+            else:
+                if ortho_method=="avg":
+                    sens_reg = sum(
+                        corr2_coeff(s.T,score.T).ravel()**2
+                    ) / s.shape[1]
+                elif ortho_method=="max":
+                    sens_reg = max(
+                        corr2_coeff(s.T,score.T).ravel()**2
+                    )
+                elif ortho_method=="w_avg":
+                    sens_reg = np.average(
+                        corr2_coeff(s.T,score.T).ravel()**2, weights=np.sum(s, axis=0)
+                    )
+                elif ortho_method=="inv_w_avg":
+                    sens_reg = np.average(
+                        corr2_coeff(s.T,score.T).ravel()**2, weights=len(s)/np.sum(s, axis=0)
+                    )
+
             return loss + lamb*l1_reg + ortho*sens_reg
         
         seed(self.random_state)
@@ -86,9 +89,15 @@ class BiasConstraintLogisticRegression():
         s = np.array(s).astype(str)
         s = pd.get_dummies(s).values.astype(int)
         if self.add_intersect:
-            coefs = np.random.normal(size=(X.shape[1]+1))
+            if self.random_state == None:
+                coefs = np.zeros(shape=(X.shape[1]+1))
+            else:
+                coefs = np.random.normal(size=(X.shape[1]+1))
         else:
-            coefs = np.random.normal(size=(X.shape[1]))
+            if self.random_state == None:
+                coefs = np.zeros(shape=(X.shape[1]))
+            else:
+                coefs = np.random.normal(size=(X.shape[1]))
         
         message = "failure"
         while "success" not in message:
@@ -97,19 +106,70 @@ class BiasConstraintLogisticRegression():
                 x0=coefs,
                 args=(X, y, s, self.lamb, self.ortho, self.add_intersect, self.ortho_method),
                 method="SLSQP",
+                jac="3-point",
+                tol=1e-7,
             )
             message = result.message
             coefs = result.x
-        w, b = coefs[:-1], coefs[-1]
-
+            
         if self.add_intersect:
-            self.w = w
-            self.b = b
+            self.w = coefs[:-1]
+            self.b = coefs[-1]
         else:
             self.w = coefs
             self.b = 0
         
-        self.is_fit=True
+        if self.lamb > 0:
+            # get useful weights 
+            cum_sum_normalised_w = np.cumsum(np.array(sorted(abs(self.w), reverse=True)) / sum(abs(self.w)))
+            i = 0
+            stop = False
+            while (not stop) and (i < len(self.w)-1):
+                gain = cum_sum_normalised_w[i+1] - cum_sum_normalised_w[i] 
+                if gain >= 0.05: # if gain in cumdensity of weight is lower than proportion of weight
+                    i+=1
+                else:
+                    stop =True
+            retained_w_index = sorted(np.argsort(abs(self.w))[-i-1:])
+            X_retained = X[:,retained_w_index]
+            if self.add_intersect:
+                if self.random_state == None:
+                    coefs = np.zeros(shape=(X_retained.shape[1]+1))
+                else:
+                    coefs = np.random.normal(size=(X_retained.shape[1]+1))
+            else:
+                if self.random_state == None:
+                    coefs = np.zeros(shape=(X_retained.shape[1]))
+                else:
+                    coefs = np.random.normal(size=(X_retained.shape[1]))
+            message = "failure"
+            while "success" not in message:
+                result = minimize(
+                    fun=loss,
+                    x0=coefs,
+                    args=(X_retained, y, s, 0, self.ortho, self.add_intersect, self.ortho_method),
+                    method="SLSQP",
+                    jac="3-point",
+                    tol=1e75,
+                )
+                message = result.message
+                coefs = result.x
+            
+            if self.add_intersect:
+                self.b = coefs[-1]
+                w = np.zeros(shape=X.shape[1])
+                w[retained_w_index] = coefs[:-1]
+                self.w = w
+                
+            else:
+                self.b = 0
+                w = np.zeros(shape=X.shape[1])
+                w[retained_w_index] = coefs[:]
+                self.w = w
+            
+            self.is_fit=True
+        else:
+            self.is_fit=True
     
     def predict(self, X):
         """
