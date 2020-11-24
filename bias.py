@@ -12,20 +12,38 @@ from scipy.special import expit as sigmoid
 
 class BiasConstraintLogisticRegression():
     
-    def __init__(self, lamb=0, ortho=1, add_intersect=True, ortho_method="avg", random_state=42):
+    def __init__(self, ortho=1, min_retain_gain=0, add_intersect=True, ortho_method="avg", random_state=42):
+        """
+        Logistic Regression with bias constraint
         
-        self.lamb=lamb
+        ortho -> float:
+            strength of constraint over sensitive feature
+            
+        ortho_method -> str:["avg", "w_avg", "inv_w_avg", "max"]
+            how to compute 1 sens-reg value from categorical sens attribute
+            
+        random_state -> int:
+            random state for initial guess over vector w + b
+            
+        add_intersect -> bool:
+            if True, no intercept is computed (b = 0)
+            
+        min_retain_gain -> float: [0-1]
+            minimum relarive weight increase in ordered w values to retain coefs (l1-reg)
+        """
+        
         self.ortho=ortho
         self.is_fit=False
         self.ortho_method=ortho_method
         self.random_state=random_state
         self.add_intersect=add_intersect
+        self.min_retain_gain=min_retain_gain
         
         seed(random_state)
         np.random.seed(random_state)
 
     def fit(self, X, y, s):
-        def loss(coefs, X, y, s, lamb=1, ortho=1, add_intersect=True, ortho_method="avg"):
+        def loss(coefs, X, y, s, ortho=1, add_intersect=True, ortho_method="avg"):
             def corr2_coeff(A, B):
                 # Rowwise mean of input arrays & subtract from input arrays themeselves
                 A_mA = A - A.mean(1)[:, None]
@@ -55,9 +73,6 @@ class BiasConstraintLogisticRegression():
             
             loss = sum(y*np.log(pred) + np.subtract(1,y)*np.log(np.subtract(1,pred))) * -1.0 / len(y)
             
-            #l1 norm regularisation
-            l1_reg = np.linalg.norm(w, ord=1)
-
             # corelation coef **2
             score = score.reshape(len(score), 1)
             if len(np.unique(score))==1:
@@ -80,7 +95,7 @@ class BiasConstraintLogisticRegression():
                         corr2_coeff(s.T,score.T).ravel()**2, weights=len(s)/np.sum(s, axis=0)
                     )
 
-            return loss + lamb*l1_reg + ortho*sens_reg
+            return loss + ortho*sens_reg
         
         seed(self.random_state)
         np.random.seed(self.random_state)
@@ -90,7 +105,7 @@ class BiasConstraintLogisticRegression():
         s = pd.get_dummies(s).values.astype(int)
         if self.add_intersect:
             if self.random_state == None:
-                coefs = np.zeros(shape=(X.shape[1]+1))
+                coefs = np.ones(shape=(X.shape[1]+1))
             else:
                 coefs = np.random.normal(size=(X.shape[1]+1))
         else:
@@ -104,7 +119,7 @@ class BiasConstraintLogisticRegression():
             result = minimize(
                 fun=loss,
                 x0=coefs,
-                args=(X, y, s, self.lamb, self.ortho, self.add_intersect, self.ortho_method),
+                args=(X, y, s, self.ortho, self.add_intersect, self.ortho_method),
                 method="SLSQP",
                 jac="3-point",
                 tol=1e-7,
@@ -119,14 +134,14 @@ class BiasConstraintLogisticRegression():
             self.w = coefs
             self.b = 0
         
-        if self.lamb > 0:
+        if self.min_retain_gain > 0:
             # get useful weights 
             i = 0
             stop = False
             cum_sum_normalised_w = np.cumsum(np.array(sorted(abs(self.w), reverse=True)) / sum(abs(self.w)))
             while (not stop) and (i < len(self.w)-1):
                 gain = cum_sum_normalised_w[i+1] - cum_sum_normalised_w[i] 
-                if gain >= 0.01: # if gain in cumdensity of weight is lower than proportion of weight
+                if gain >= self.min_retain_gain: # if gain in cumdensity of weight is lower than proportion of weight
                     i+=1
                 else:
                     stop=True
@@ -141,7 +156,7 @@ class BiasConstraintLogisticRegression():
                 result = minimize(
                     fun=loss,
                     x0=coefs,
-                    args=(X_retained, y, s, 0, self.ortho, self.add_intersect, self.ortho_method),
+                    args=(X_retained, y, s, self.ortho, self.add_intersect, self.ortho_method),
                     method="SLSQP",
                     jac="3-point",
                     tol=1e75,
