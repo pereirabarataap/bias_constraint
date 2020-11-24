@@ -53,10 +53,10 @@ class BiasConstraintLogisticRegression():
             pred = np.maximum(epsilon, pred)
             pred = np.minimum(1-epsilon, pred)
             
-            loss = sum(y*np.log(pred) + np.subtract(1,y)*np.log(np.subtract(1,pred))) * -1.0 / len(y)
+            loss = sum(y*np.log(pred) + np.subtract(1,y)*np.log(np.subtract(1,pred))) * -1.0
             
             #l1 norm regularisation
-            l1_reg = np.linalg.norm(w, ord=1) / len(w)
+            l1_reg = np.linalg.norm(w, ord=1)
 
             # corelation coef **2
             score = score.reshape(len(score), 1)
@@ -121,27 +121,21 @@ class BiasConstraintLogisticRegression():
         
         if self.lamb > 0:
             # get useful weights 
-            cum_sum_normalised_w = np.cumsum(np.array(sorted(abs(self.w), reverse=True)) / sum(abs(self.w)))
             i = 0
             stop = False
+            cum_sum_normalised_w = np.cumsum(np.array(sorted(abs(self.w), reverse=True)) / sum(abs(self.w)))
             while (not stop) and (i < len(self.w)-1):
                 gain = cum_sum_normalised_w[i+1] - cum_sum_normalised_w[i] 
-                if gain >= 0.05: # if gain in cumdensity of weight is lower than proportion of weight
+                if gain >= 0.01: # if gain in cumdensity of weight is lower than proportion of weight
                     i+=1
                 else:
-                    stop =True
+                    stop=True
             retained_w_index = sorted(np.argsort(abs(self.w))[-i-1:])
             X_retained = X[:,retained_w_index]
             if self.add_intersect:
-                if self.random_state == None:
-                    coefs = np.zeros(shape=(X_retained.shape[1]+1))
-                else:
-                    coefs = np.random.normal(size=(X_retained.shape[1]+1))
+                coefs = np.array((self.w[retained_w_index]).tolist() + [self.b])
             else:
-                if self.random_state == None:
-                    coefs = np.zeros(shape=(X_retained.shape[1]))
-                else:
-                    coefs = np.random.normal(size=(X_retained.shape[1]))
+                coefs = self.w[retained_w_index]
             message = "failure"
             while "success" not in message:
                 result = minimize(
