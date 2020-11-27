@@ -40,7 +40,7 @@ class BiasConstraintLogisticRegression():
             maximum number of iterations to perform
         """
         
-        self.tol = tol
+        self.tol=tol
         self.ortho=ortho
         self.is_fit=False
         self.maxiter=maxiter
@@ -91,24 +91,18 @@ class BiasConstraintLogisticRegression():
                 if len(np.unique(score))==1:
                     sens_reg = 1
                 else:
+                    correlations = abs(corr2_coeff(s.T,score.T).ravel())
                     if ortho_method=="avg":
-                        sens_reg = sum(
-                            abs(corr2_coeff(s.T,score.T).ravel())
-                        ) / s.shape[1]
+                        sens_reg = sum(correlations) / s.shape[1]
                     elif ortho_method=="max":
-                        sens_reg = max(
-                            abs(corr2_coeff(s.T,score.T).ravel())
-                        )
+                        sens_reg = max(correlations)
                     elif ortho_method=="w_avg":
-                        sens_reg = np.average(
-                            abs(corr2_coeff(s.T,score.T).ravel()), weights=np.sum(s, axis=0)
-                        )
+                        sens_reg = np.average(correlations, weights=np.sum(s, axis=0))
                     elif ortho_method=="inv_w_avg":
-                        sens_reg = np.average(
-                            abs(corr2_coeff(s.T,score.T).ravel()), weights=len(s)/np.sum(s, axis=0)
-                        )
-
-            return loss + ortho*sens_reg
+                        sens_reg = np.average(correlations, weights=len(s)/np.sum(s, axis=0))
+            
+            total_loss = loss + ortho*sens_reg
+            return total_loss
         
         seed(self.random_state)
         np.random.seed(self.random_state)
@@ -136,6 +130,7 @@ class BiasConstraintLogisticRegression():
                 method="SLSQP",
                 tol=self.tol,
                 options=dict(
+                    ftol=self.tol,
                     maxiter=self.maxiter,
                 ),
             )
@@ -176,6 +171,7 @@ class BiasConstraintLogisticRegression():
                     method="SLSQP",
                     tol=self.tol,
                     options=dict(
+                        ftol=self.tol,
                         maxiter=self.maxiter,
                     ),
                 )
