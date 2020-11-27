@@ -12,7 +12,7 @@ from scipy.special import expit as sigmoid
 
 class BiasConstraintLogisticRegression():
     
-    def __init__(self, ortho=1, l1_reg_factor=0, add_intersect=True, ortho_method="avg", random_state=42):
+    def __init__(self, ortho=1, l1_reg_factor=0, add_intersect=True, ortho_method="avg", tol=1e-4, maxiter=1e4, random_state=42):
         """
         Logistic Regression with bias constraint
         
@@ -32,10 +32,18 @@ class BiasConstraintLogisticRegression():
             proportional to l1-reg strength
             min_gain_increase = l1_reg_factor/X.shape[1]
             defines the minimum relative weight increase to retain coefs      
+            
+        tol -> float:
+            minimum loss change tolerance for termination
+            
+        maxiter -> int:
+            maximum number of iterations to perform
         """
         
+        self.tol = tol
         self.ortho=ortho
         self.is_fit=False
+        self.maxiter=maxiter
         self.ortho_method=ortho_method
         self.random_state=random_state
         self.add_intersect=add_intersect
@@ -76,26 +84,29 @@ class BiasConstraintLogisticRegression():
             loss = sum(y*np.log(pred) + np.subtract(1,y)*np.log(np.subtract(1,pred))) * -1.0 / len(y)
             
             # corelation coef **2
-            score = score.reshape(len(score), 1)
-            if len(np.unique(score))==1:
-                sens_reg = 1
+            if ortho == 0:
+                sens_reg = 0
             else:
-                if ortho_method=="avg":
-                    sens_reg = sum(
-                        corr2_coeff(s.T,score.T).ravel()**2
-                    ) / s.shape[1]
-                elif ortho_method=="max":
-                    sens_reg = max(
-                        corr2_coeff(s.T,score.T).ravel()**2
-                    )
-                elif ortho_method=="w_avg":
-                    sens_reg = np.average(
-                        corr2_coeff(s.T,score.T).ravel()**2, weights=np.sum(s, axis=0)
-                    )
-                elif ortho_method=="inv_w_avg":
-                    sens_reg = np.average(
-                        corr2_coeff(s.T,score.T).ravel()**2, weights=len(s)/np.sum(s, axis=0)
-                    )
+                score = score.reshape(len(score), 1)
+                if len(np.unique(score))==1:
+                    sens_reg = 1
+                else:
+                    if ortho_method=="avg":
+                        sens_reg = sum(
+                            abs(corr2_coeff(s.T,score.T).ravel())
+                        ) / s.shape[1]
+                    elif ortho_method=="max":
+                        sens_reg = max(
+                            abs(corr2_coeff(s.T,score.T).ravel())
+                        )
+                    elif ortho_method=="w_avg":
+                        sens_reg = np.average(
+                            abs(corr2_coeff(s.T,score.T).ravel()), weights=np.sum(s, axis=0)
+                        )
+                    elif ortho_method=="inv_w_avg":
+                        sens_reg = np.average(
+                            abs(corr2_coeff(s.T,score.T).ravel()), weights=len(s)/np.sum(s, axis=0)
+                        )
 
             return loss + ortho*sens_reg
         
@@ -123,6 +134,10 @@ class BiasConstraintLogisticRegression():
                 x0=coefs,
                 args=(X, y, s, self.ortho, self.add_intersect, self.ortho_method),
                 method="SLSQP",
+                tol=self.tol,
+                options=dict(
+                    maxiter=self.maxiter,
+                ),
             )
             message = result.message
             coefs = result.x
@@ -159,6 +174,10 @@ class BiasConstraintLogisticRegression():
                     x0=coefs,
                     args=(X_retained, y, s, self.ortho, self.add_intersect, self.ortho_method),
                     method="SLSQP",
+                    tol=self.tol,
+                    options=dict(
+                        maxiter=self.maxiter,
+                    ),
                 )
                 message = result.message
                 coefs = result.x
