@@ -123,8 +123,6 @@ class BiasConstraintLogisticRegression():
                 x0=coefs,
                 args=(X, y, s, self.ortho, self.add_intersect, self.ortho_method),
                 method="SLSQP",
-                jac="3-point",
-                tol=1e-7,
             )
             message = result.message
             coefs = result.x
@@ -161,8 +159,6 @@ class BiasConstraintLogisticRegression():
                     x0=coefs,
                     args=(X_retained, y, s, self.ortho, self.add_intersect, self.ortho_method),
                     method="SLSQP",
-                    jac="3-point",
-                    tol=1e75,
                 )
                 message = result.message
                 coefs = result.x
