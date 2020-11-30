@@ -98,7 +98,7 @@ class BiasConstraintLogisticRegression():
                     elif ortho_method=="w_avg":
                         sens_reg = np.average(correlations, weights=np.sum(s, axis=0))
                     elif ortho_method=="inv_w_avg":
-                        sens_reg = np.average(correlations, weights=len(s)/np.sum(s, axis=0))
+                        sens_reg = np.average(correlations, weights=1/np.sum(s, axis=0))
             
             total_loss = loss + ortho*sens_reg
             return total_loss
