@@ -83,7 +83,6 @@ class BiasConstraintLogisticRegression():
             
             loss = sum(y*np.log(pred) + np.subtract(1,y)*np.log(np.subtract(1,pred))) * -1.0 / len(y)
             
-            # corelation coef **2
             if ortho == 0:
                 sens_reg = 0
             else:
@@ -92,10 +91,10 @@ class BiasConstraintLogisticRegression():
                     sens_reg = 1
                 else:
                     correlations = abs(corr2_coeff(s.T,score.T).ravel())
-                    if ortho_method=="avg":
-                        sens_reg = sum(correlations) / s.shape[1]
-                    elif ortho_method=="max":
+                    if ortho_method=="max":
                         sens_reg = max(correlations)
+                    elif ortho_method=="avg":
+                        sens_reg = np.mean(correlations)
                     elif ortho_method=="w_avg":
                         sens_reg = np.average(correlations, weights=np.sum(s, axis=0))
                     elif ortho_method=="inv_w_avg":
@@ -121,21 +120,21 @@ class BiasConstraintLogisticRegression():
             else:
                 coefs = np.random.normal(size=(X.shape[1]))
         
-        message = "failure"
-        while "success" not in message:
-            result = minimize(
-                fun=loss,
-                x0=coefs,
-                args=(X, y, s, self.ortho, self.add_intersect, self.ortho_method),
-                method="SLSQP",
-                tol=self.tol,
-                options=dict(
-                    ftol=self.tol,
-                    maxiter=self.maxiter,
-                ),
-            )
-            message = result.message
-            coefs = result.x
+        #message = "failure"
+        #while "success" not in message:
+        result = minimize(
+            fun=loss,
+            x0=coefs,
+            args=(X, y, s, self.ortho, self.add_intersect, self.ortho_method),
+            method="SLSQP",
+            tol=self.tol,
+            options=dict(
+                ftol=self.tol,
+                maxiter=self.maxiter,
+            ),
+        )
+            #message = result.message
+        coefs = result.x
             
         if self.add_intersect:
             self.w = coefs[:-1]
@@ -162,21 +161,21 @@ class BiasConstraintLogisticRegression():
                 coefs = np.array((self.w[retained_w_index]).tolist() + [self.b])
             else:
                 coefs = self.w[retained_w_index]
-            message = "failure"
-            while "success" not in message:
-                result = minimize(
-                    fun=loss,
-                    x0=coefs,
-                    args=(X_retained, y, s, self.ortho, self.add_intersect, self.ortho_method),
-                    method="SLSQP",
-                    tol=self.tol,
-                    options=dict(
-                        ftol=self.tol,
-                        maxiter=self.maxiter,
-                    ),
-                )
-                message = result.message
-                coefs = result.x
+            #message = "failure"
+            #while "success" not in message:
+            result = minimize(
+                fun=loss,
+                x0=coefs,
+                args=(X_retained, y, s, self.ortho, self.add_intersect, self.ortho_method),
+                method="SLSQP",
+                tol=self.tol,
+                options=dict(
+                    ftol=self.tol,
+                    maxiter=self.maxiter,
+                ),
+            )
+                #message = result.message
+            coefs = result.x
             
             if self.add_intersect:
                 self.b = coefs[-1]
