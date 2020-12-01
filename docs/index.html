@@ -1,7 +1,7 @@
 <html>
   <body>
-    <p>Leave-one-out performance (only 1 loop) across hyperparameter search space.</p>
-    <p>Only test scenes with 0 and 1 target label are testes since AUC is not computable otherwise.</p>
+    <p>Average Leave-one-out (LOO) test performance (only 1 loop) across hyperparameter search space.</p>
+    <p>Only test scenes with 0 and 1 target label are used for testing since AUC is not computable otherwise.</p>
     <ul>
       <li>weighted vs unweighted -> how average AUC is computed across crime scenes, since test crime scenes have different sample size</li>
       <li>not-train-all vs train-all -> if only crime scenes with both 0 and 1 target label are used during training or not (using all except LOO)</li>
