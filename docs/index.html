@@ -8,8 +8,8 @@
       </style>
   </head>
   <body>
-    <p>Average Leave-one-out (LOO) test performance (only 1 loop) across hyperparameter search space.</p>
-    <p>Only test scenes with 0 and 1 target label are used for testing since AUC is not computable otherwise.</p>
+    <p>Average Leave-one-group-out (LOGO) test performance (no inner validation) across hyperparameter search space.</p>
+    <p>Only test crime-scenes (the left-out group) with both 0 and 1 target labels are used for testing since AUC is not computable otherwise.</p>
     
     <ul>
       <li>Weighted vs Unweighted -> how average AUC is computed across crime scenes, since test crime scenes have different sample size</li>
@@ -18,7 +18,7 @@
    
     <table style="width:75%">
       <tr>
-        <th>Leave-one-out</th>
+        <th>LOGO</th>
         <th>Weighted</th>
         <th>Unweighted</th>
       </tr>
