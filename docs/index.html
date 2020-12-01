@@ -8,6 +8,14 @@
       </style>
   </head>
   <body>
+    <h1>Crime-Scene dataset</h1>
+    <h3>Features : float >>> scene measurements</h3>
+    <h3>Target label : 0/1 >>> useless sample</h3>
+    <h3>Group label : int >>> crime-scene location</h3>
+    <h5>Our purpose is to assess if we can increase prediction performance by implementing bias-constraints over the group labels during classifier learning</h5>
+    
+    <hr>
+    
     <p>Average Leave-one-group-out (LOGO) test performance (no inner validation) across hyperparameter search space.</p>
     <p>Only test crime-scenes (the left-out group) with both 0 and 1 target labels are used for testing since AUC is not computable otherwise.</p>
     
