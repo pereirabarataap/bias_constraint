@@ -1,20 +1,22 @@
 <html>
   <head>
     <style>
-      table, th, td {
+      table, th, td, tr{
         border: 1px solid black;
+        text-align: center;
       }
       </style>
   </head>
   <body>
     <p>Average Leave-one-out (LOO) test performance (only 1 loop) across hyperparameter search space.</p>
     <p>Only test scenes with 0 and 1 target label are used for testing since AUC is not computable otherwise.</p>
+    
     <ul>
       <li>Weighted vs Unweighted -> how average AUC is computed across crime scenes, since test crime scenes have different sample size</li>
       <li>Not-train-on-all vs Train-on-all -> if only crime scenes with both 0 and 1 target label are used during training or not, respectively</li>
     </ul>
    
-    <table style="width:50%">
+    <table style="width:75%">
       <tr>
         <th>Leave-one-out</th>
         <th>Weighted</th>
