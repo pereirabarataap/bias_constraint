@@ -1,10 +1,29 @@
 <html>
+  <head>
+    <style>
+    table {
+      font-family: arial, sans-serif;
+      border-collapse: collapse;
+      width: 100%;
+    }
+
+    td, th {
+      border: 1px solid #dddddd;
+      text-align: left;
+      padding: 8px;
+    }
+
+    tr:nth-child(even) {
+      background-color: #dddddd;
+    }
+    </style>
+  </head>
   <body>
     <p>Average Leave-one-out (LOO) test performance (only 1 loop) across hyperparameter search space.</p>
     <p>Only test scenes with 0 and 1 target label are used for testing since AUC is not computable otherwise.</p>
     <ul>
       <li>weighted vs unweighted -> how average AUC is computed across crime scenes, since test crime scenes have different sample size</li>
-      <li>not-train-on-all vs train-on-all -> if only crime scenes with both 0 and 1 target label are used during training or not (using all except LOO)</li>
+      <li>not-train-on-all vs train-on-all -> if only crime scenes with both 0 and 1 target label are used during training or not, respectively</li>
     </ul>
    
     <table style="width:50%">
