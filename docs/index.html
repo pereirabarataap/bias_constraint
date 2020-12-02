@@ -44,83 +44,91 @@
     
    <hr>
     
-    <h3 style="color:red;">The following values and figures are ALL wrong</h3>
-    <h3 style="color:red;">I messed up with the fit_transform funcions so nothing made sense to the logistic regression algorithm</h3>
-    <h3 style="color:red;">Hopefully this will be fixed at some point today still (depending if I'm awake)</h3>
-      
     <p>GroupKFold inner validation hyperparameter optimization performance</p>
-    <p>Only not-train-all applied: 40 crime scenes were used</p>
-    <a href="https://pereirabarataap.github.io/bias_constraint/40-crime-scene_aggregated-inner-validation_figures.html"">40-crime-scene_aggregated-inner-validation_figures</a>
+    <p>All 57 crime scenes were used for training and testing</p>
+    <a href="https://pereirabarataap.github.io/bias_constraint/57-crime-scene_aggregated-inner-validation_figures.html"">57-crime-scene_aggregated-inner-validation_figures</a>
     
-    <p>Optimal AUC: <b>0.6431478886269076</b><p>
+    <p>AUC with CV-parameter selection: <b>0.6585</b><p>
+    <p>AUC with CV-parameter selection fixing for "max" ortho-computation  <a href="https://arxiv.org/pdf/1507.05259.pdf">[1]</a> : <b>0.7209</b><p>                                                                                                                 
     <p>Selected paramters per fold:</p>
     <table style="width:75%">
       <tr>
         <th>GroupKFold</th>
+        <th>AUC</th>
         <th>Ortho-coef</th>
         <th>L1-Reg-factor</th>
         <th>Ortho-method</th>                            
       </tr>
       <tr>
         <td>0</td>
-        <td>1.585</td>
-        <td>1.0</td>
+        <td>0.771</td>
+        <td>0.063</td>
+        <td>0.794</td>
         <td>max</td>
       </tr>
       <tr>
         <td>1</td>
-        <td>1.0</td>
-        <td>1.259</td>
-        <td>max</td>
-      </tr>
-      <tr>
-        <td>2</td>
-        <td>0.398</td>
-        <td>1.259</td>
-        <td>max</td>
-      </tr>
-      <tr>
-        <td>3</td>
-        <td>5.012</td>
-        <td>1.0</td>
+        <td>0.822</td>
+        <td>3.162</td>
+        <td>0.794</td>
         <td>w_avg</td>
       </tr>
       <tr>
-        <td>4</td>
-        <td>0.063</td>
-        <td>0.063</td>
+        <td>2</td>
+        <td>0.799</td>
+        <td>3.162</td>
+        <td>0.126</td>
+        <td>w_avg</td>
+      </tr>
+      <tr>
+        <td>3</td>
+        <td>0.747</td>
+        <td>5.012</td>
+        <td>0.251</td>
         <td>inv_w_avg</td>
       </tr>
       <tr>
-        <td>5</td>
+        <td>4</td>
+        <td>0.73</td>
         <td>0.631</td>
-        <td>1.0</td>
+        <td>0.794</td>
         <td>max</td>
       </tr>
       <tr>
-        <td>6</td>
-        <td>0.158</td>
+        <td>5</td>
+        <td>0.78</td>
+        <td>1.995</td>
         <td>0.631</td>
+        <td>w_avg</td>
+      </tr>
+      <tr>
+        <td>6</td>
+        <td>0.746</td>
+        <td>1.0</td>
+        <td>1.259</td>
         <td>max</td>
       </tr>
       <tr>
         <td>7</td>
-        <td>0.2</td>
-        <td>0.05</td>
-        <td>avg</td>
+        <td>0.743</td>
+        <td>2.512</td>
+        <td>0.126</td>
+        <td>w_avg</td>
       </tr>
       <tr>
         <td>8</td>
-        <td>1.585</td>
-        <td>1.0</td>
+        <td>0.791</td>
+        <td>2.512</td>
+        <td>0.631</td>
         <td>w_avg</td>
       </tr>
       <tr>
         <td>9</td>
-        <td>0.079</td>
-        <td>0.0</td>
-        <td>w_avg</td>
-      </tr>                         
+        <td>0.793</td>
+        <td>0.501</td>
+        <td>0.794</td>
+        <td>max</td>
+      </tr>                   
     </table>
                                                                                                                             
       
