@@ -13,11 +13,11 @@
     <p>Target label : {0,1} - usefulness of collected sample</p>
     <p>Group label : str - crime-scene location identifier</p>
     <h3>Our purpose is to increase prediction performance by implementing bias-constraints over the group labels during classifier learning</h3>
-    
+    <h4>Older and recent versions of implementation are marked by v1 and v2, respectively</h4>
     <hr>
     
     <p>Average Leave-one-group-out (<b>LOGO</b>) test performance (no inner validation) across hyperparameter search space.</p>
-    <p>Only 40 test crime-scenes (the left-out groups) with both 0 and 1 target labels are used for testing since AUC is not computable otherwise.</p>
+    <p>Only <b>40 test crime-scenes</b> (the left-out groups) with both 0 and 1 target labels are used for testing since AUC is not computable otherwise.</p>
     
     <ul>
       <li>Weighted vs Unweighted -> how average AUC is computed across crime scenes, since test crime scenes have different sample size</li>
@@ -56,7 +56,7 @@
 
     <hr>
     
-    <p>GroupKFold inner validation hyperparameter optimization performance: all 57 crime scenes were used for training and testing</p>
+    <p>GroupKFold inner validation hyperparameter optimization performance: <b>all 57</b> crime scenes were used for training and testing</p>
     <p>Average inner CV-AUC in hyperparam space:
       <a href="https://pereirabarataap.github.io/bias_constraint/57-crime-scene_aggregated-inner-validation_figures.html"">GKFv1</a>,
       <a href="https://pereirabarataap.github.io/bias_constraint/57-crime-scene-v2_aggregated-inner-validation_figures.html"">GKFv2</a>,                                                                                                                  
