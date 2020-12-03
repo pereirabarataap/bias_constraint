@@ -207,6 +207,125 @@ class BiasConstraintLogisticRegression():
             ]
         ).T
 
+class BiasConstraintLogisticRegression2():
+    
+    def __init__(self, ortho=0, l1_reg_factor=0, ortho_method="max", add_intersect=True, tol=1e-6, maxiter=1e6):
+        """
+        Logistic Regression with bias constraint
+        
+        ortho -> float:
+            strength of constraint over sensitive feature
+            
+        ortho_method -> str:["avg", "w_avg", "inv_w_avg", "max"]
+            how to compute 1 sens-reg value from categorical sens attribute
+            
+            
+        add_intersect -> bool:
+            if True, no intercept is computed (b = 0)
+            
+        l1_reg_factor -> float:
+            proportional to strength of squishing coefs      
+            
+        tol -> float:
+            minimum loss change tolerance for termination
+            
+        maxiter -> int:
+            maximum number of iterations to perform
+        """
+        
+        self.tol=tol
+        self.ortho=ortho
+        self.is_fit=False
+        self.maxiter=maxiter
+        self.ortho_method=ortho_method
+        self.l1_reg_factor=l1_reg_factor
+        self.add_intersect=add_intersect
+        
+    def fit(self, X, y, s):
+        def loss(coefs, X, y, s, ortho=0, l1_reg_factor=0, ortho_method="avg", add_intersect=True):
+            if add_intersect:
+                b = coefs[-1]
+                w = coefs[:-1]
+            else:
+                b = 0
+                w = coefs[:]
+            score = np.dot(X,w)+b
+            pred = sigmoid(score)
+            
+            #cap in official Kaggle implementation
+            #per forums/t/1576/r-code-for-logloss
+            epsilon = 1e-15
+            pred = np.maximum(epsilon, pred)
+            pred = np.minimum(1-epsilon, pred)
+            
+            loss = sum(y*np.log(pred) + np.subtract(1,y)*np.log(np.subtract(1,pred))) * -1.0 / len(y)
+            
+            l1_reg = 0
+            if l1_reg_factor > 0:
+                l1_reg = np.linalg.norm(w, ord=1)
+            
+            sens_reg = 0
+            if ortho > 0:
+                s_means = np.mean(s, axis=0)
+                scores = np.repeat(score, s.shape[1]).reshape(s.shape)
+                sens_vec = np.mean(abs((s - s_means) * scores), axis=0)
+                if ortho_method=="max":
+                    sens_reg = max(sens_vec)
+                elif ortho_method=="avg":
+                    sens_reg = np.mean(sens_vec)
+                elif ortho_method=="w_avg":
+                    sens_reg = np.average(sens_vec, weights=np.sum(s, axis=0))
+                elif ortho_method=="inv_w_avg":
+                    sens_reg = np.average(sens_vec, weights=1/np.sum(s, axis=0))
+            
+            total_loss = loss + l1_reg*l1_reg_factor + ortho*sens_reg
+            return total_loss
+        
+        X = np.array(X).astype(float)
+        y = np.array(y).astype(int)
+        s = np.array(s).astype(str)
+        s = pd.get_dummies(s).values.astype(int)
+        if self.add_intersect:
+            coefs = np.zeros(shape=(X.shape[1]+1))
+        else:
+            coefs = np.zeros(shape=(X.shape[1]))
+
+        result = minimize(
+            fun=loss,
+            x0=coefs,
+            args=(X, y, s, self.ortho, self.l1_reg_factor, self.ortho_method, self.add_intersect),
+            method="SLSQP",
+            tol=self.tol,
+            options=dict(
+                ftol=self.tol,
+                maxiter=self.maxiter,
+            ),
+        )
+        coefs = result.x
+            
+        if self.add_intersect:
+            self.w = coefs[:-1]
+            self.b = coefs[-1]
+        else:
+            self.w = coefs
+            self.b = 0
+
+        self.is_fit=True
+    
+    def predict(self, X):
+        """
+        Returns raw logit score (-int, +inf)
+        """
+        return np.dot(X, self.w) + self.b
+    
+    def predict_proba(self, X):
+        return np.array(
+            [
+                1-sigmoid(np.dot(X, self.w) + self.b),
+                sigmoid(np.dot(X, self.w) + self.b),
+            ]
+        ).T
+    
 class BiasConstraintDecisionTreeClassifier():
     def __init__(self,
         n_bins=10, min_leaf=5, max_depth=3, n_samples=1.0, n_features=1.0, boot_replace=False, random_state=42,
