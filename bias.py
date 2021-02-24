@@ -18,12 +18,12 @@ from tqdm import tqdm
 from math import ceil
 import multiprocessing
 from random import seed
-from scipy.stats import entropy
 import matplotlib.pyplot as plt
 from dccp.problem import is_dccp
 from copy import deepcopy as copy
 from scipy.optimize import minimize
 from joblib import delayed, Parallel
+from scipy.stats import mode, entropy
 from tqdm.notebook import tqdm as tqdm_n
 from scipy.special import expit as sigmoid
 from collections import Counter, defaultdict
@@ -1064,8 +1064,11 @@ class BiasConstraintDecisionTreeClassifier():
                 fg = abs(disc) - ( (n_left/n) * abs(disc_left) + (n_right/n) * abs(disc_right))
                 if (fg==0):
                     fg = 1 # FIG=IG*FG, and when FG=0, authors state FIG=IG --> FG=1 since FIG=IG*FG -> FIG=IG
+
                 elif np.isnan(fg):
-                    fg = 0
+                    fg = -np.inf
+                    ig = 1
+                    
                 score = ig * fg # fair information gain
             
             elif self.criterion in ["entropy", "ig"]:
@@ -1113,29 +1116,31 @@ class BiasConstraintDecisionTreeClassifier():
                 dg_left = sum((self.b[index_left]==b_neg) & (self.y[index_left]==self.y_pos)) # deprived granted
                 fr_left = sum((self.b[index_left]==b_pos) & (self.y[index_left]==self.y_neg)) # favoured rejected
                 fg_left = sum((self.b[index_left]==b_pos) & (self.y[index_left]==self.y_pos)) # favoured granted                
-                if (fg_left+fr_left)==0:
-                    disc_left = (dg_left/(dg_left+dr_left))
-                elif (dg_left+dr_left)==0:
-                    disc_left = (fg_left/(fg_left+fr_left)) 
-                else:
-                    disc_left = (fg_left/(fg_left+fr_left)) - (dg_left/(dg_left+dr_left))
+#                 if (fg_left+fr_left)==0:
+#                     disc_left = (dg_left/(dg_left+dr_left))
+#                 elif (dg_left+dr_left)==0:
+#                     disc_left = (fg_left/(fg_left+fr_left)) 
+#                 else:
+                disc_left = (fg_left/(fg_left+fr_left)) - (dg_left/(dg_left+dr_left))
                 
                 dr_right = sum((self.b[index_right]==b_neg) & (self.y[index_right]==self.y_neg)) # deprived rejected
                 dg_right = sum((self.b[index_right]==b_neg) & (self.y[index_right]==self.y_pos)) # deprived granted
                 fr_right = sum((self.b[index_right]==b_pos) & (self.y[index_right]==self.y_neg)) # favoured rejected
                 fg_right = sum((self.b[index_right]==b_pos) & (self.y[index_right]==self.y_pos)) # favoured granted
-                if (fg_right+fr_right)==0:
-                    disc_right = (dg_right/(dg_right+dr_right))
-                elif (dg_right+dr_right)==0:
-                    disc_right = (fg_right/(fg_right+fr_right)) 
-                else:
-                    disc_right = (fg_right/(fg_right+fr_right)) - (dg_right/(dg_right+dr_right))
+#                 if (fg_right+fr_right)==0:
+#                     disc_right = (dg_right/(dg_right+dr_right))
+#                 elif (dg_right+dr_right)==0:
+#                     disc_right = (fg_right/(fg_right+fr_right)) 
+#                 else:
+                disc_right = (fg_right/(fg_right+fr_right)) - (dg_right/(dg_right+dr_right))
                 
                 fg = abs(disc) - ( (n_left/n) * abs(disc_left) + (n_right/n) * abs(disc_right))
-                if (fg==0):
-                    fg = 1 # FIG=IG*FG, and when FG=0, authors state FIG=IG --> FG=1 since FIG=IG*FG -> FIG=IG
-                elif np.isnan(fg):
-                    fg = 0
+#                 if (fg==0):
+#                     fg = 1 # FIG=IG*FG, and when FG=0, authors state FIG=IG --> FG=1 since FIG=IG*FG -> FIG=IG
+#                 if np.isnan(fg):
+#                     fg = 0
+                if np.isnan(fg):
+                    fg = -np.inf
                 score = fg # fairness gain
             
             return score    
@@ -1396,10 +1401,9 @@ class BiasConstraintRandomForestClassifier():
         self.trees = fit_dts
         self.fit = True
     
-    def predict(self, X):
+    def predict_proba(self, X):
         def predict_proba_parallel(tree, X):
             return tree.predict_proba(X)
-
         if not self.fit:
             warnings.warn("Forest has not been fit(X,y,s)")
 
@@ -1411,7 +1415,22 @@ class BiasConstraintRandomForestClassifier():
                 ) for tree in self.trees
             )
             return np.mean(y_preds, axis=0)
-        
+    
+    def predict(self, X):
+        def predict_parallel(tree, X):
+            return tree.predict(X)
+        if not self.fit:
+            warnings.warn("Forest has not been fit(X,y,s)")
+
+        else:
+            # Predicting
+            y_preds = Parallel(n_jobs=self.n_jobs)(
+                delayed(predict_parallel)(
+                    tree, X
+                ) for tree in self.trees
+            )
+            return mode(y_preds, axis=0)[0][0]
+    
 def run_regression(
     X="X", y="y", s="s", Scaler=RS,
     cov_coefs=sorted(set(np.linspace(0,1,11).tolist() + np.geomspace(1e-2,1,11).tolist())), random_state=42,
