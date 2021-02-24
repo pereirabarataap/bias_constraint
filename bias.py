@@ -1,3 +1,9 @@
+import os
+
+os.environ["MKL_NUM_THREADS"] = "1" 
+os.environ["NUMEXPR_NUM_THREADS"] = "1" 
+os.environ["OMP_NUM_THREADS"] = "1" 
+
 import dccp
 import random
 import pprint
@@ -12,6 +18,7 @@ from tqdm import tqdm
 from math import ceil
 import multiprocessing
 from random import seed
+from scipy.stats import entropy
 import matplotlib.pyplot as plt
 from dccp.problem import is_dccp
 from copy import deepcopy as copy
@@ -25,7 +32,6 @@ from sklearn.preprocessing import PolynomialFeatures as PF
 from sklearn.metrics import mean_squared_error, roc_auc_score
 from sklearn.preprocessing import StandardScaler as SS, RobustScaler as RS
 
-import os
 os.environ["MKL_NUM_THREADS"] = "1" 
 os.environ["NUMEXPR_NUM_THREADS"] = "1" 
 os.environ["OMP_NUM_THREADS"] = "1" 
@@ -771,7 +777,7 @@ class BiasConstraintDecisionTreeClassifier():
         
         seed(random_state)
         np.random.seed(random_state)
-        if (self.criterion != "entropy") and (self.criterion != "auc"):
+        if self.criterion not in ["entropy", "auc", "fair_ig", "ig", "fg"]:
             self.criterion = "auc"
             warnings.warn("criterion undefined -> setting criterion to auc")
         if (self.bias_method != "avg") and (self.bias_method != "w_avg") and (self.bias_method != "xtr"):
@@ -990,11 +996,127 @@ class BiasConstraintDecisionTreeClassifier():
             else:
                 index_left = indexs[self.X[indexs, feature] <= split_value]
                 index_right = indexs[self.X[indexs, feature] > split_value]
-            if self.criterion == "auc":
-                auc_y = get_auc_y(index_left, indexs)
-                auc_b = get_auc_b(index_left, indexs)
-                score = auc_y - (self.orthogo_coef*auc_b)
-            return score
+                
+            if (len(index_left)==0) or (len(index_right)==0):
+                score = -np.inf
+            elif self.criterion == "auc":
+                    auc_y = get_auc_y(index_left, indexs)
+                    auc_b = get_auc_b(index_left, indexs)
+                    score = (1-self.orthogo_coef)*auc_y - self.orthogo_coef*auc_b
+            
+            elif self.criterion == "fair_ig":
+                
+                n = len(indexs)
+                pos_n = sum(self.y[indexs]==self.y_pos)
+                neg_n = n - pos_n
+                pos_prob = pos_n/n
+                neg_prob = neg_n/n
+                entropy_parent = entropy([pos_prob, neg_prob], base=2)
+
+                n_left = len(index_left)
+                pos_n_left = sum(self.y[index_left]==self.y_pos)
+                neg_n_left = n_left - pos_n_left
+                pos_prob_left = pos_n_left/n_left
+                neg_prob_left = neg_n_left/n_left
+                entropy_left = entropy([pos_prob_left, neg_prob_left], base=2)
+
+                n_right = len(index_right)
+                pos_n_right = sum(self.y[index_right]==self.y_pos)
+                neg_n_right = n_right - pos_n_right
+                pos_prob_right = pos_n_right/n_right
+                neg_prob_right = neg_n_right/n_right
+                entropy_right = entropy([pos_prob_right, neg_prob_right], base=2)
+
+                ig = entropy_parent - (
+                    (n_left/n) * entropy_left + (n_right/n) * entropy_right
+                )
+                
+                b_neg = np.unique(self.b)[0]
+                b_pos = np.unique(self.b)[1]
+                dr = sum((self.b[indexs]==b_neg) & (self.y[indexs]==self.y_neg)) # deprived rejected
+                dg = sum((self.b[indexs]==b_neg) & (self.y[indexs]==self.y_pos)) # deprived granted
+                fr = sum((self.b[indexs]==b_pos) & (self.y[indexs]==self.y_neg)) # favoured rejected
+                fg = sum((self.b[indexs]==b_pos) & (self.y[indexs]==self.y_pos)) # favoured granted
+                disc = (fg/(fg+fr)) - (dg/(dg+dr))
+
+                dr_left = sum((self.b[index_left]==b_neg) & (self.y[index_left]==self.y_neg)) # deprived rejected
+                dg_left = sum((self.b[index_left]==b_neg) & (self.y[index_left]==self.y_pos)) # deprived granted
+                fr_left = sum((self.b[index_left]==b_pos) & (self.y[index_left]==self.y_neg)) # favoured rejected
+                fg_left = sum((self.b[index_left]==b_pos) & (self.y[index_left]==self.y_pos)) # favoured granted
+                disc_left = (fg_left/(fg_left+fr_left)) - (dg_left/(dg_left+dr_left))
+
+                dr_right = sum((self.b[index_right]==b_neg) & (self.y[index_right]==self.y_neg)) # deprived rejected
+                dg_right = sum((self.b[index_right]==b_neg) & (self.y[index_right]==self.y_pos)) # deprived granted
+                fr_right = sum((self.b[index_right]==b_pos) & (self.y[index_right]==self.y_neg)) # favoured rejected
+                fg_right = sum((self.b[index_right]==b_pos) & (self.y[index_right]==self.y_pos)) # favoured granted
+                disc_right = (fg_right/(fg_right+fr_right)) - (dg_right/(dg_right+dr_right))
+
+                fg = abs(disc) - ( (n_left/n) * abs(disc_left) + (n_right/n) * abs(disc_right))
+                if (np.isnan(fg)) or (fg==0):
+                    fg = 1 # FIG=IG*FG, and when FG=0, authors state FIG=IG --> FG=1 since FIG=IG*FG -> FIG=IG
+
+                score = ig * fg # fair information gain
+            
+            elif self.criterion in ["entropy", "ig"]:
+                
+                n = len(indexs)
+                pos_n = sum(self.y[indexs]==self.y_pos)
+                neg_n = n - pos_n
+                pos_prob = pos_n/n
+                neg_prob = neg_n/n
+                entropy_parent = entropy([pos_prob, neg_prob], base=2)
+
+                n_left = len(index_left)
+                pos_n_left = sum(self.y[index_left]==self.y_pos)
+                neg_n_left = n_left - pos_n_left
+                pos_prob_left = pos_n_left/n_left
+                neg_prob_left = neg_n_left/n_left
+                entropy_left = entropy([pos_prob_left, neg_prob_left], base=2)
+
+                n_right = len(index_right)
+                pos_n_right = sum(self.y[index_right]==self.y_pos)
+                neg_n_right = n_right - pos_n_right
+                pos_prob_right = pos_n_right/n_right
+                neg_prob_right = neg_n_right/n_right
+                entropy_right = entropy([pos_prob_right, neg_prob_right], base=2)
+
+                ig = entropy_parent - (
+                    (n_left/n) * entropy_left + (n_right/n) * entropy_right
+                )
+                score = ig # information gain
+            
+            elif self.criterion == "fg":
+                
+                n = len(indexs)
+                b_neg = np.unique(self.b)[0]
+                b_pos = np.unique(self.b)[1]
+                n_left = len(index_left)
+                n_right = len(index_right)
+                dr = sum((self.b[indexs]==b_neg) & (self.y[indexs]==self.y_neg)) # deprived rejected
+                dg = sum((self.b[indexs]==b_neg) & (self.y[indexs]==self.y_pos)) # deprived granted
+                fr = sum((self.b[indexs]==b_pos) & (self.y[indexs]==self.y_neg)) # favoured rejected
+                fg = sum((self.b[indexs]==b_pos) & (self.y[indexs]==self.y_pos)) # favoured granted
+                disc = (fg/(fg+fr)) - (dg/(dg+dr))
+
+                dr_left = sum((self.b[index_left]==b_neg) & (self.y[index_left]==self.y_neg)) # deprived rejected
+                dg_left = sum((self.b[index_left]==b_neg) & (self.y[index_left]==self.y_pos)) # deprived granted
+                fr_left = sum((self.b[index_left]==b_pos) & (self.y[index_left]==self.y_neg)) # favoured rejected
+                fg_left = sum((self.b[index_left]==b_pos) & (self.y[index_left]==self.y_pos)) # favoured granted
+                disc_left = (fg_left/(fg_left+fr_left)) - (dg_left/(dg_left+dr_left))
+
+                dr_right = sum((self.b[index_right]==b_neg) & (self.y[index_right]==self.y_neg)) # deprived rejected
+                dg_right = sum((self.b[index_right]==b_neg) & (self.y[index_right]==self.y_pos)) # deprived granted
+                fr_right = sum((self.b[index_right]==b_pos) & (self.y[index_right]==self.y_neg)) # favoured rejected
+                fg_right = sum((self.b[index_right]==b_pos) & (self.y[index_right]==self.y_pos)) # favoured granted
+                disc_right = (fg_right/(fg_right+fr_right)) - (dg_right/(dg_right+dr_right))
+
+                fg = abs(disc) - ( (n_left/n) * abs(disc_left) + (n_right/n) * abs(disc_right))
+                if (np.isnan(fg)) or (fg==0):
+                    fg = 1 # FIG=IG*FG, and when FG=0, authors state FIG=IG --> FG=1 since FIG=IG*FG -> FIG=IG
+
+                score = fg # fairness gain
+            
+            return score    
                 
         # return best (sscore, feature, split_value) dependant on criterion and indexs
         def get_best_split(indexs):
@@ -1051,33 +1173,32 @@ class BiasConstraintDecisionTreeClassifier():
         self.is_fit=True   
     
     def predict(self, X):
-        if self.is_fit:
+        def get_sub_tree(sub_tree, x):
+            if type(sub_tree) != type(np.array([1])):
+                feature, value = list(sub_tree.keys())[0]
+                if x[feature] <= value:
+                    sub_tree = sub_tree[feature, value]["<="]
+                else:
+                    sub_tree = sub_tree[feature, value][">"]
+                return get_sub_tree(sub_tree, x)
+            else:
+                return sub_tree
+        if len(X.shape)!=2:
+            raise Exception("X.shape must be (n_instances, features)")
+        if not self.is_fit:
+            raise Exception("tree has not been fit")
+        else:
             X = np.array(X)
-            if len(X.shape)!=2:
-                raise Exception("X.shape must be (n_instances, features)")
             predictions = []
             for x in X:
-                sub_tree = self.tree
-
-                while type(sub_tree) != type(np.array([1])):
-
-                    feature, value = list(sub_tree.keys())[0]
-                    if x[feature] <= value:
-                        sub_tree = sub_tree[feature, value]["<="]
-
-                    else:
-                        sub_tree = sub_tree[feature, value][">"]
-
+                sub_tree = get_sub_tree(self.tree, x)
                 prediction = sum(self.y[sub_tree]==self.y_pos) / len(sub_tree)
                 if prediction >= self.pred_th:
                     predictions.append(self.y_pos)
                 else:
                     predictions.append(self.y_neg)
-
             return np.array(predictions)
-        else:
-            raise Exception("tree has not been fit")
-            
+                     
     def predict_proba(self, X):
         def get_sub_tree(sub_tree, x):
             if type(sub_tree) != type(np.array([1])):
@@ -1174,7 +1295,7 @@ class BiasConstraintRandomForestClassifier():
         
         seed(random_state)
         np.random.seed(random_state)
-        if (self.criterion != "entropy") and (self.criterion != "auc"):
+        if self.criterion not in ["entropy", "auc", "fair_ig", "ig", "fg"]:
             self.criterion = "auc"
             warnings.warn("criterion undefined -> setting criterion to auc")
         if (self.bias_method != "avg") and (self.bias_method != "w_avg") and (self.bias_method != "xtr"):
