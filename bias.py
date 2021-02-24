@@ -1064,7 +1064,8 @@ class BiasConstraintDecisionTreeClassifier():
                 fg = abs(disc) - ( (n_left/n) * abs(disc_left) + (n_right/n) * abs(disc_right))
                 if (fg==0):
                     fg = 1 # FIG=IG*FG, and when FG=0, authors state FIG=IG --> FG=1 since FIG=IG*FG -> FIG=IG
-
+                elif np.isnan(fg):
+                    fg = 0
                 score = ig * fg # fair information gain
             
             elif self.criterion in ["entropy", "ig"]:
@@ -1133,7 +1134,8 @@ class BiasConstraintDecisionTreeClassifier():
                 fg = abs(disc) - ( (n_left/n) * abs(disc_left) + (n_right/n) * abs(disc_right))
                 if (fg==0):
                     fg = 1 # FIG=IG*FG, and when FG=0, authors state FIG=IG --> FG=1 since FIG=IG*FG -> FIG=IG
-
+                elif np.isnan(fg):
+                    fg = 0
                 score = fg # fairness gain
             
             return score    
@@ -1172,6 +1174,9 @@ class BiasConstraintDecisionTreeClassifier():
                 old_score = copy(new_score)
                 new_score = copy(score)
                 if new_score==-np.inf: ## in case no more feature values exist for splitting
+                    return indexs
+                
+                if new_score <= old_score:
                     return indexs
                 
                 ##print(indexs)
