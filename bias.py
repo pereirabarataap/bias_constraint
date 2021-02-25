@@ -1043,23 +1043,23 @@ class BiasConstraintDecisionTreeClassifier():
                 dg_left = sum((self.b[index_left]==b_neg) & (self.y[index_left]==self.y_pos)) # deprived granted
                 fr_left = sum((self.b[index_left]==b_pos) & (self.y[index_left]==self.y_neg)) # favoured rejected
                 fg_left = sum((self.b[index_left]==b_pos) & (self.y[index_left]==self.y_pos)) # favoured granted                
-                if (fg_left+fr_left)==0:
-                    disc_left = (dg_left/(dg_left+dr_left))
-                elif (dg_left+dr_left)==0:
-                    disc_left = (fg_left/(fg_left+fr_left)) 
-                else:
-                    disc_left = (fg_left/(fg_left+fr_left)) - (dg_left/(dg_left+dr_left))
+#                 if (fg_left+fr_left)==0:
+#                     disc_left = (dg_left/(dg_left+dr_left))
+#                 elif (dg_left+dr_left)==0:
+#                     disc_left = (fg_left/(fg_left+fr_left)) 
+#                 else:
+                disc_left = (fg_left/(fg_left+fr_left)) - (dg_left/(dg_left+dr_left))
                 
                 dr_right = sum((self.b[index_right]==b_neg) & (self.y[index_right]==self.y_neg)) # deprived rejected
                 dg_right = sum((self.b[index_right]==b_neg) & (self.y[index_right]==self.y_pos)) # deprived granted
                 fr_right = sum((self.b[index_right]==b_pos) & (self.y[index_right]==self.y_neg)) # favoured rejected
                 fg_right = sum((self.b[index_right]==b_pos) & (self.y[index_right]==self.y_pos)) # favoured granted
-                if (fg_right+fr_right)==0:
-                    disc_right = (dg_right/(dg_right+dr_right))
-                elif (dg_right+dr_right)==0:
-                    disc_right = (fg_right/(fg_right+fr_right)) 
-                else:
-                    disc_right = (fg_right/(fg_right+fr_right)) - (dg_right/(dg_right+dr_right))
+#                 if (fg_right+fr_right)==0:
+#                     disc_right = (dg_right/(dg_right+dr_right))
+#                 elif (dg_right+dr_right)==0:
+#                     disc_right = (fg_right/(fg_right+fr_right)) 
+#                 else:
+                disc_right = (fg_right/(fg_right+fr_right)) - (dg_right/(dg_right+dr_right))
                 
                 fg = abs(disc) - ( (n_left/n) * abs(disc_left) + (n_right/n) * abs(disc_right))
                 if (fg==0):
