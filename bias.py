@@ -1181,8 +1181,8 @@ class BiasConstraintDecisionTreeClassifier():
                 if new_score==-np.inf: ## in case no more feature values exist for splitting
                     return indexs
                 
-                if new_score <= old_score:
-                    return indexs
+#                 if new_score <= old_score:
+#                     return indexs
                 
                 ##print(indexs)
                 left_indexs = indexs[self.X[indexs, feature]<=split_value]
