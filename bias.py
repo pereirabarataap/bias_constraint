@@ -795,8 +795,8 @@ class BiasConstraintDecisionTreeClassifier():
             raise Exception("max_depth must be an int, not " + str(type(self.max_depth)))
         if ("int" not in str(type(self.n_samples))) and ("float" not in str(type(self.n_samples))):
             raise Exception("n_samples must be an int or float, not " + str(type(self.n_samples)))
-        if ("int" not in str(type(self.n_features))) and ("float" not in str(type(self.n_features))):
-            raise Exception("n_features must be an int or float, not " + str(type(self.n_features)))
+#         if ("int" not in str(type(self.n_features))) and ("float" not in str(type(self.n_features))):
+#             raise Exception("n_features must be an int or float, not " + str(type(self.n_features)))
         if ("int" not in str(type(self.orthogo_coef))) and ("float" not in str(type(self.orthogo_coef))):
             raise Exception("orthogo_coef must be an int or float, not " + str(type(self.orthogo_coef)))
                                 
@@ -1400,6 +1400,9 @@ class BiasConstraintRandomForestClassifier():
                   -> float: proportion of samples to bootstrap
         n_features -> int: number of samples to bootstrap
                    -> float: proportion of samples to bootstrap
+                   -> str:
+                       -> "auto"/"sqrt": sqrt of features is used
+                       -> "log"/"log2": log2 of features is used
         boot_replace -> bool: bootstrap strategy (with out without replacement)
         random_state -> int: seed for all random processes
         criterion -> str: ["entropy", "auc"] score criterion for splitting
@@ -1443,8 +1446,8 @@ class BiasConstraintRandomForestClassifier():
             raise Exception("max_depth must be an int, not " + str(type(self.max_depth)))
         if ("int" not in str(type(self.n_samples))) and ("float" not in str(type(self.n_samples))):
             raise Exception("n_samples must be an int or float, not " + str(type(self.n_samples)))
-        if ("int" not in str(type(self.n_features))) and ("float" not in str(type(self.n_features))):
-            raise Exception("n_features must be an int or float, not " + str(type(self.n_features)))
+#         if ("int" not in str(type(self.n_features))) and ("float" not in str(type(self.n_features))):
+#             raise Exception("n_features must be an int or float, not " + str(type(self.n_features)))
         if ("int" not in str(type(self.orthogo_coef))) and ("float" not in str(type(self.orthogo_coef))):
             raise Exception("orthogo_coef must be an int or float, not " + str(type(self.orthogo_coef)))
         
