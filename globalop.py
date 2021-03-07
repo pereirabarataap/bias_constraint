@@ -7,13 +7,14 @@ from sklearn.metrics import roc_auc_score
 
 class DecisionTreeClassifier():
 
-    def __init__(self, n_bins=4, max_depth=3, bootstrap=False, max_features="sqrt", random_state=42):
+    def __init__(self, n_bins=4, max_depth=3, bootstrap=False, max_features="sqrt", score_weight=False, random_state=42):
         self.n_bins = n_bins
         self.max_depth = max_depth
         self.bootstrap = bootstrap
         self.max_features = max_features
+        self.score_weight = score_weight
         self.random_state = random_state
-    
+        
     def fit(self, X, y):
         
         np.random.seed(self.random_state)
@@ -90,15 +91,32 @@ class DecisionTreeClassifier():
                 return copy(output)
             else:
                 return copy(tree["indexs"])
-
+        
+        def get_weights(tree, output=np.array([])):
+            tree = copy(tree)
+            if "split" in tree:
+                node_0 = tree[0]
+                node_1 = tree[1]
+                output_0 = get_weights(node_0, output)
+                output_1 = get_weights(node_1, output)
+                output = np.concatenate((output_0, output_1))
+                return copy(output)
+            else:
+                return copy(np.repeat(len(tree["indexs"]), len(tree["indexs"])))
+        
         def get_score(tree):
             # self.y
             tree = copy(tree)
             indexs = get_indexs(tree)
             probas = get_probas(tree)
-            del tree
             y_true = y[indexs]
-            score = roc_auc_score(y_true, probas)
+            if self.score_weight:
+                score_weight = get_weights(tree)
+                if len(np.unique(score_weight)) == 1:
+                    score_weight = None
+                score = roc_auc_score(y_true, probas, sample_weight=score_weight)
+            else:
+                score = roc_auc_score(y_true, probas)
             return copy(score)
 
         def get_candidate_splits(indexs):
@@ -366,18 +384,20 @@ class DecisionTreeClassifier():
 
 class RandomForestClassifier():
     
-    def __init__(self, n_estimators=100, n_bins=4, max_depth=3, bootstrap=False, max_features="sqrt", random_state=42, n_jobs=-1):
+    def __init__(self, n_estimators=100, n_bins=4, max_depth=3, bootstrap=False, max_features="sqrt", score_weight=False, random_state=42, n_jobs=-1):
         self.n_jobs = n_jobs
         self.n_bins = n_bins
         self.max_depth = max_depth
         self.bootstrap = bootstrap
         self.max_features = max_features
         self.random_state = random_state
+        self.score_weight = score_weight
         self.trees = [DecisionTreeClassifier(
             n_bins = n_bins,
             max_depth = max_depth,
             bootstrap = bootstrap,
             max_features = max_features,
+            score_weight = score_weight,
             random_state = random_state+i,
         )
         for i in range(n_estimators)]
@@ -417,16 +437,13 @@ class RandomForestClassifier():
     def predict_proba(self, X):
         def predict_proba_parallel(tree, X):
             return tree.predict_proba(X)[:,1]
-        if not self.fit:
-            warnings.warn("Forest has not been fit(X,y,s)")
-
-        else:
-            # Predicting
-            y_preds = Parallel(n_jobs=self.n_jobs)(
-                delayed(predict_proba_parallel)(
-                    tree, X
-                ) for tree in self.trees
-            )
-            probas = np.mean(y_preds, axis=0).reshape(-1,1)
-            probas = np.concatenate((1-probas, probas), axis=1)
-            return probas
+        
+        # Predicting
+        y_preds = Parallel(n_jobs=self.n_jobs)(
+            delayed(predict_proba_parallel)(
+                tree, X
+            ) for tree in self.trees
+        )
+        probas = np.mean(y_preds, axis=0).reshape(-1,1)
+        probas = np.concatenate((1-probas, probas), axis=1)
+        return probas
