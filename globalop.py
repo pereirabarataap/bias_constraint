@@ -7,15 +7,16 @@ from sklearn.metrics import roc_auc_score
 
 class DecisionTreeClassifier():
 
-    def __init__(self, n_bins=4, max_depth=3, bootstrap=False, max_features="sqrt", score_weight=False, random_state=42):
+    def __init__(self, n_bins=4, max_depth=3, bootstrap=False, max_features="sqrt", orthogonality=0.5, score_weight=False, random_state=42):
         self.n_bins = n_bins
         self.max_depth = max_depth
         self.bootstrap = bootstrap
         self.max_features = max_features
         self.score_weight = score_weight
         self.random_state = random_state
+        self.orthogonality = orthogonality
         
-    def fit(self, X, y):
+    def fit(self, X, y, s):
         
         np.random.seed(self.random_state)
         features = np.array(range(X.shape[1]))
@@ -110,13 +111,18 @@ class DecisionTreeClassifier():
             indexs = get_indexs(tree)
             probas = get_probas(tree)
             y_true = y[indexs]
+            s_true = s[indexs]
             if self.score_weight:
                 score_weight = get_weights(tree)
                 if len(np.unique(score_weight)) == 1:
                     score_weight = None
-                score = roc_auc_score(y_true, probas, sample_weight=score_weight)
+                y_auc = roc_auc_score(y_true, probas, sample_weight=score_weight)
+                s_auc = roc_auc_score(s_true, probas, sample_weight=score_weight)
             else:
-                score = roc_auc_score(y_true, probas)
+                y_auc = roc_auc_score(y_true, probas)
+                s_auc = roc_auc_score(s_true, probas)
+            s_auc = max(1-s_auc, s_auc)
+            score = (1-self.orthogonality)*y_auc - self.orthogonality*s_auc
             return copy(score)
 
         def get_candidate_splits(indexs):
@@ -271,7 +277,7 @@ class DecisionTreeClassifier():
                             best_value = value
 
             if base_score == best_score:
-                return copy((0, 0, 0, 0, 0))
+                return copy((0, 0, 0, 0, -np.inf))
             else:
                 return copy((best_leaf_id, best_split, best_feature, best_value, best_score))
 
@@ -312,8 +318,9 @@ class DecisionTreeClassifier():
             old_leaf_id_candidate_splits = copy(get_leaf_id_candidate_splits(old_tree))
             old_best = copy(get_best_leaf_id_split_feature_value_score(old_tree, old_leaf_id_candidate_splits))
             score = old_best[-1]
-            n_splits = 0
-            while score != 0:
+            fit_flag = 0
+            #n_splits = -np.inf
+            while score != -np.inf:
                 new_tree = copy(get_new_tree_with_add_best(old_tree, old_best))
                 new_leaf_id_candidate_splits = copy(update_leaf_id_candidate_splits(old_leaf_id_candidate_splits, old_best))
                 new_best = copy(get_best_leaf_id_split_feature_value_score(new_tree, new_leaf_id_candidate_splits))
@@ -327,6 +334,9 @@ class DecisionTreeClassifier():
                 old_tree = copy(new_tree)
                 old_leaf_id_candidate_splits = copy(new_leaf_id_candidate_splits)
                 old_best = copy(new_best)
+                fit_flag = 1
+            if not fit_flag:
+                new_tree = copy(tree)
             return new_tree
         
         self.tree = build_tree(tree)
@@ -357,34 +367,36 @@ class DecisionTreeClassifier():
         
         #tree = copy(tree)
         tree = self.tree
-        indexs = np.array(range(len(X)))
-        probas = np.repeat(1.0, len(X))
-        leaf_ids = copy(get_leaf_ids(tree))
-        for leaf_id in leaf_ids:
-            leaf_indexs = copy(indexs)
-            leaf_X = copy(X)
-            leaf = copy(tree)
-            for i in range(len(leaf_id)):
-                feature, value = leaf["split"]
-                path = leaf_id[i]
-                if path==0:
-                    condition = leaf_X[leaf_indexs, feature]<value
-                    if sum(condition)>0:
-                        leaf_indexs = leaf_indexs[condition]
-                else:
-                    condition = leaf_X[leaf_indexs, feature]>=value
-                    if sum(condition)>0:
-                        leaf_indexs = leaf_indexs[condition]
-                leaf = leaf[path]
-            probas[leaf_indexs] = leaf["probas"]
-            
+        if "split" not in tree:
+            probas = np.repeat(tree["probas"], len(X))
+        else:
+            indexs = np.array(range(len(X)))
+            probas = np.repeat(1.0, len(X))
+            leaf_ids = copy(get_leaf_ids(tree))
+            for leaf_id in leaf_ids:
+                leaf_indexs = copy(indexs)
+                leaf_X = copy(X)
+                leaf = copy(tree)
+                for i in range(len(leaf_id)):
+                    feature, value = leaf["split"]
+                    path = leaf_id[i]
+                    if path==0:
+                        condition = leaf_X[leaf_indexs, feature]<value
+                        if sum(condition)>0:
+                            leaf_indexs = leaf_indexs[condition]
+                    else:
+                        condition = leaf_X[leaf_indexs, feature]>=value
+                        if sum(condition)>0:
+                            leaf_indexs = leaf_indexs[condition]
+                    leaf = leaf[path]
+                probas[leaf_indexs] = leaf["probas"]
         probas = probas.reshape(-1,1)
         probas = np.concatenate((1-probas, probas), axis=1)
         return probas
 
 class RandomForestClassifier():
     
-    def __init__(self, n_estimators=100, n_bins=4, max_depth=3, bootstrap=False, max_features="sqrt", score_weight=False, random_state=42, n_jobs=-1):
+    def __init__(self, n_estimators=100, n_bins=4, max_depth=3, bootstrap=False, max_features="sqrt", orthogonality=0.5, score_weight=False, random_state=42, n_jobs=-1):
         self.n_jobs = n_jobs
         self.n_bins = n_bins
         self.max_depth = max_depth
@@ -392,6 +404,7 @@ class RandomForestClassifier():
         self.max_features = max_features
         self.random_state = random_state
         self.score_weight = score_weight
+        self.orthogonality = orthogonality
         self.trees = [DecisionTreeClassifier(
             n_bins = n_bins,
             max_depth = max_depth,
@@ -399,10 +412,11 @@ class RandomForestClassifier():
             max_features = max_features,
             score_weight = score_weight,
             random_state = random_state+i,
+            orthogonality = orthogonality,
         )
         for i in range(n_estimators)]
         
-    def fit(self, X, y):
+    def fit(self, X, y, s):
       
         def batch(iterable, n_jobs=1):
             if n_jobs==-1:
@@ -412,11 +426,11 @@ class RandomForestClassifier():
             for ndx in range(0, l, n):
                 yield iterable[ndx:min(ndx + n, l)]
 
-        def fit_trees_parallel(i, dt_batch, X ,y):
+        def fit_trees_parallel(i, dt_batch, X, y, s):
             dt_batch = dt_batches[i]
             fit_dt_batch = []
             for dt in dt_batch:
-                dt.fit(X, y)
+                dt.fit(X, y, s)
                 fit_dt_batch.append(dt)
             return fit_dt_batch
     
@@ -428,7 +442,7 @@ class RandomForestClassifier():
                 dt_batches, #copy(dt_batches),
                 X, #copy(X),
                 y, #copy(y),
-                #s, #copy(s)
+                s, #copy(s)
             ) for i in (range(len(copy(dt_batches))))
         )
         fit_dts = [tree for fit_dt_batch in fit_dt_batches for tree in fit_dt_batch]
