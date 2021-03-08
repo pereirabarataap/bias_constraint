@@ -243,11 +243,12 @@ class DecisionTreeClassifier():
                 leaf[1]["id"] = copy(tuple([path for path in leaf_id]+[1]))
                 #leaf[0]["from"] = copy((feature, value))
                 #leaf[1]["from"] = copy((feature, value))
-            # we won't delete this info
-            # it might be useful when pruning
-            # since we need to know the Probs
-            # del leaf["indexs"]
-            # del leaf["probas"]
+            
+            # we won't delete this info when
+            # it might be useful to do pruning
+            # since we need to know the probs
+            del leaf["indexs"]
+            del leaf["probas"]
             return copy(tree)
 
         def get_best_leaf_id_split_feature_value_score(tree, leaf_id_candidate_splits):
@@ -426,7 +427,7 @@ class RandomForestClassifier():
             for ndx in range(0, l, n):
                 yield iterable[ndx:min(ndx + n, l)]
 
-        def fit_trees_parallel(i, dt_batch, X, y, s):
+        def fit_trees_parallel(i, dt_batches, X, y, s):
             dt_batch = dt_batches[i]
             fit_dt_batch = []
             for dt in dt_batch:
