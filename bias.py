@@ -917,7 +917,7 @@ class BiasConstraintDecisionTreeClassifier():
                 else:
                     n_unique = len(np.unique(self.X[indexs,feature])) 
                     if (n_unique-1) < n_bins:
-                        candidate_splits[feature] = sorted(np.unique(self.X[indexs,feature]))[:-1]
+                        candidate_splits[feature] = sorted(np.unique(self.X[indexs,feature]))
                     else:
                         lo = 1/n_bins
                         hi = lo * (n_bins-1)
