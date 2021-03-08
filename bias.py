@@ -940,9 +940,6 @@ class BiasConstraintDecisionTreeClassifier():
                         y_prob = np.concatenate(
                             (np.repeat(proba_left, n_left), np.repeat(proba_right, n_right))
                         )
-                        y_true = np.concatenate(
-                            (y_left, y_right)
-                        )
                         
                         b_left = self.b[index_left]
                         b_right = self.b[index_right]
@@ -1025,20 +1022,17 @@ class BiasConstraintDecisionTreeClassifier():
                 return auc_b
             
             if "str" in str(type(self.X[0,feature])):
-                index_left = indexs[self.X[indexs, feature] == split_value]
-                index_right = indexs[self.X[indexs, feature] != split_value]
+                index_left = indexs[self.X[indexs, feature] != split_value]
+                index_right = indexs[self.X[indexs, feature] == split_value]
             else:
                 index_left = indexs[self.X[indexs, feature] < split_value]
                 index_right = indexs[self.X[indexs, feature] >= split_value]
                 
             if (len(index_left)==0) or (len(index_right)==0):
-                if self.criterion == "auc":
-                    score = 0
-                else:
-                    score = -np.inf
+                score = -np.inf
             elif self.criterion == "auc":
-                auc_y = get_auc_y(index_left, indexs)
-                auc_b = get_auc_b(index_left, indexs)
+                auc_y = get_auc_y(index_left, index_right)
+                auc_b = get_auc_b(index_left, index_right)
                 score = (1-self.orthogo_coef)*auc_y - self.orthogo_coef*auc_b
             
             elif self.criterion == "faht":
@@ -1242,11 +1236,12 @@ class BiasConstraintDecisionTreeClassifier():
                 
         # return best (sscore, feature, split_value) dependant on criterion and indexs
         def get_best_split(indexs):
-#             if self.criterion=="auc":
-#                 best_score = 0
-#             else:
-#                 best_score = -np.inf
-            best_score = -np.inf    
+            if self.criterion=="auc":
+                base_score = (1-self.orthogo_coef)*0.5 - self.orthogo_coef*0.5
+                best_score = copy(base_score)
+            else:
+                best_score = -np.inf
+            #best_score = -np.inf    
             # only positive scores are desirable
             # if negative score, then b_auc > s_auc which we don't want
             candidate_splits = get_candidate_splits(indexs)
@@ -1260,24 +1255,26 @@ class BiasConstraintDecisionTreeClassifier():
                         best_split_value = split_value
             if (best_score==-np.inf):
                 best_feature, best_split_value = np.nan, np.nan
-#             if (self.criterion=="auc") and (best_score==0):
-#                 best_feature, best_split_value = np.nan, np.nan
+            if (self.criterion=="auc") and (best_score==base_score):
+                best_feature, best_split_value, best_score = np.nan, np.nan, -np.inf
             return best_score, best_feature, best_split_value
         
         # recursively grow the actual tree ---> {split1: {...}}
         def build_tree(indexs, step=0, old_score=-np.inf, new_score=-np.inf):
             ##print(indexs)
+            
+            step = copy(step)
+            indexs = copy(indexs)
             tree={}
             if (                
                 len(np.unique(self.y[indexs]))==1 or ( # no need to split if there is alreadyd only 1 y class
                 len(indexs)<=self.min_leaf) or ( # minimum number to consider a node as a leaf
                 #new_score<old_score) or ( # if score is lower after split
-                step==self.max_depth) # if we've reached the max depth in the tree
+                step>=self.max_depth) # if we've reached the max depth in the tree
             ):
                 return indexs
 
             else:
-                step += 1
                 score, feature, split_value = get_best_split(indexs)
                 old_score = copy(new_score)
                 new_score = copy(score)
@@ -1298,6 +1295,7 @@ class BiasConstraintDecisionTreeClassifier():
                     return indexs
                 
                 else:
+                    step += 1
                     tree[(feature, split_value)] = {
                         "<": build_tree(left_indexs, step=copy(step), old_score=copy(old_score), new_score=copy(new_score)),
                         ">=":  build_tree(right_indexs, step=copy(step), old_score=copy(old_score), new_score=copy(new_score))
