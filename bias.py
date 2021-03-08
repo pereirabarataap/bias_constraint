@@ -1331,9 +1331,10 @@ class BiasConstraintDecisionTreeClassifier():
                         ">":  build_tree(right_indexs, step=copy(step), old_score=copy(old_score), new_score=copy(new_score))
                     }
 
-            return tree
+                    return tree
         
         self.tree = build_tree(self.samples)
+        del self.X
         self.is_fit=True   
        
     def predict_proba(self, X):
@@ -1390,17 +1391,14 @@ class BiasConstraintDecisionTreeClassifier():
                     index = copy(tree)
                     sub_y = self.y[index]
                     proba = sum(sub_y)/len(sub_y)
-                    if proba in probas_dict:
-                        probas_dict[proba] += indexs.tolist()
-                    else:
-                        probas_dict[proba] = indexs.tolist()
+                    probas_dict[indexs] = proba
                     return probas_dict
 
             proba = np.repeat(0.0, X.shape[0])
             probas_dict = get_probas_dict(self.tree, X)
-            for proba_value in probas_dict:
-                proba_index = np.array(probas_dict[proba_value])
-                proba[proba_index] =  proba_value
+            for indexs in probas_dict:
+                proba_value = probas_dict[indexs]
+                proba[indexs] =  proba_value
 
             return proba
         
@@ -1529,24 +1527,23 @@ class BiasConstraintRandomForestClassifier():
         self.trees = dts
         
     def fit(self, X, y, s):
+      
         def batch(iterable, n_jobs=1):
             if n_jobs==-1:
                 n_jobs = multiprocessing.cpu_count() # - 1 # -1 so that our laptop doesn't freeze
             l = len(iterable)
-            n = ceil(l / n_jobs)
+            n = int(np.ceil(l / n_jobs))
             for ndx in range(0, l, n):
                 yield iterable[ndx:min(ndx + n, l)]
-                
-        def fit_trees_parallel(i, dt_batch, X ,y ,s):
+
+        def fit_trees_parallel(i, dt_batches, X, y, s):
             dt_batch = dt_batches[i]
             fit_dt_batch = []
             for dt in tqdm(dt_batch, desc=str(i)):
                 dt.fit(X, y, s)
                 fit_dt_batch.append(dt)
             return fit_dt_batch
-
-        # Fitting
-        self.y_neg, self.y_pos = 0, 1
+    
         dts = self.trees
         dt_batches = list(batch(dts, n_jobs=self.n_jobs))
         fit_dt_batches = Parallel(n_jobs=self.n_jobs)(
@@ -1558,24 +1555,48 @@ class BiasConstraintRandomForestClassifier():
                 s, #copy(s)
             ) for i in (range(len(copy(dt_batches))))
         )
-        fit_dts = [item for sublist in fit_dt_batches for item in sublist]
+        fit_dts = [tree for fit_dt_batch in fit_dt_batches for tree in fit_dt_batch]
         self.trees = fit_dts
         self.fit = True
     
     def predict_proba(self, X):
-        def predict_proba_parallel(tree, X):
-            return tree.predict_proba(X)
+        def predict_proba_parallel(dt_batch, X, i):
+            probas = []
+            for tree in dt_batch:
+                probas.append(tree.predict_proba(X))
+            return np.array(probas)
+        
+        def batch(iterable, n_jobs=1):
+            if n_jobs==-1:
+                n_jobs = multiprocessing.cpu_count() # - 1 # -1 so that our laptop doesn't freeze
+            l = len(iterable)
+            n = ceil(l / n_jobs)
+            for ndx in range(0, l, n):
+                yield iterable[ndx:min(ndx + n, l)]
+
+        
         if not self.fit:
             warnings.warn("Forest has not been fit(X,y,s)")
-
+        
+        
         else:
-            # Predicting
+            dt_batches = list(batch(self.trees, n_jobs=self.n_jobs))
+            
             y_preds = Parallel(n_jobs=self.n_jobs)(
                 delayed(predict_proba_parallel)(
-                    tree, X
-                ) for tree in self.trees
+                    copy(dt_batches[i]),
+                    copy(X),
+                    copy(i),
+                ) for i in range(len(dt_batches))
             )
-            return np.mean(y_preds, axis=0)
+            
+            y_prob = y_preds[0]
+            for i in range(1, len(y_preds)):
+                y_prob = np.concatenate(
+                    (y_prob, y_preds[i]),
+                    axis=0
+                )
+            return np.mean(y_prob, axis=0)
     
     def predict(self, X):
         def predict_parallel(tree, X):
