@@ -847,28 +847,28 @@ class BiasConstraintDecisionTreeClassifier():
         self.pred_th = sum(self.y[self.samples]==self.y_pos) / len(self.samples)
 
         def choose_features():   
-            if "int" in str(type(self.max_features)):
+            if "int" in str(type(self.n_features)):
                 chosen_features = np.random.choice(
-                        features,
-                        size=max(1, self.max_features),
+                        self.features,
+                        size=max(1, self.n_features),
                         replace=False
                 )
-            elif ("auto" in str(self.max_features)) or ("sqrt" in str(self.max_features)):
+            elif ("auto" in str(self.n_features)) or ("sqrt" in str(self.n_features)):
                 chosen_features = np.random.choice(
-                        features,
-                        size=max(1, int(np.sqrt(len(features)))),
+                        self.features,
+                        size=max(1, int(np.sqrt(len(self.features)))),
                         replace=False
                 )
-            elif "log" in str(self.max_features):
+            elif "log" in str(self.n_features):
                 chosen_features = np.random.choice(
-                        features,
-                        size=max(1, int(np.log2(len(features)))),
+                        self.features,
+                        size=max(1, int(np.log2(len(self.features)))),
                         replace=False
                 )
             else:
                 chosen_features = np.random.choice(
-                        features,
-                        size=max(1, int(self.max_features*len(features))),
+                        self.features,
+                        size=max(1, int(self.n_features*len(self.features))),
                         replace=False,
                 )
             return chosen_features
@@ -1242,10 +1242,11 @@ class BiasConstraintDecisionTreeClassifier():
                 
         # return best (sscore, feature, split_value) dependant on criterion and indexs
         def get_best_split(indexs):
-            if self.criterion=="auc":
-                best_score = 0
-            else:
-                best_score = -np.inf
+#             if self.criterion=="auc":
+#                 best_score = 0
+#             else:
+#                 best_score = -np.inf
+            best_score = -np.inf    
             # only positive scores are desirable
             # if negative score, then b_auc > s_auc which we don't want
             candidate_splits = get_candidate_splits(indexs)
@@ -1259,8 +1260,8 @@ class BiasConstraintDecisionTreeClassifier():
                         best_split_value = split_value
             if (best_score==-np.inf):
                 best_feature, best_split_value = np.nan, np.nan
-            if (self.criterion=="auc") and (best_score==0):
-                best_feature, best_split_value = np.nan, np.nan
+#             if (self.criterion=="auc") and (best_score==0):
+#                 best_feature, best_split_value = np.nan, np.nan
             return best_score, best_feature, best_split_value
         
         # recursively grow the actual tree ---> {split1: {...}}
@@ -1284,8 +1285,8 @@ class BiasConstraintDecisionTreeClassifier():
                 if new_score==-np.inf: ## in case no more feature values exist for splitting
                     return indexs
                 
-                if (self.criterion=="auc") and (new_score<=0):
-                    return indexs
+#                 if (self.criterion=="auc") and (new_score<=0):
+#                     return indexs
 #                 if new_score <= old_score:
 #                     return indexs
                 
