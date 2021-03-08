@@ -95,8 +95,8 @@ class DecisionTreeClassifier():
         def get_score(tree):
             # self.y
             tree = copy(tree)
-            indexs = get_indexs(tree)
-            probas = get_probas(tree)
+            indexs = copy(get_indexs(tree))
+            probas = copy(get_probas(tree))
             y_true = y[indexs]
             s_true = s[indexs]
             if self.score_weight:
@@ -250,8 +250,8 @@ class DecisionTreeClassifier():
         def get_best_leaf_id_split_feature_value_score(tree, leaf_id_candidate_splits):
             tree = copy(tree)
             leaf_id_candidate_splits = copy(leaf_id_candidate_splits)
-            base_score = get_score(tree)
-            best_score = get_score(tree)
+            base_score = copy(get_score(tree))
+            best_score = copy(get_score(tree))
             for leaf_id in leaf_id_candidate_splits:
                 for feature in leaf_id_candidate_splits[leaf_id]:
                     for value in leaf_id_candidate_splits[leaf_id][feature]:
