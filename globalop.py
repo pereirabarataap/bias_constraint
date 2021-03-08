@@ -29,44 +29,32 @@ class DecisionTreeClassifier():
             "probas": sum(y[indexs]==1)/len(indexs)
         }
         
-        def choose_features():
-            
+        def choose_features():   
             if "int" in str(type(self.max_features)):
-                chosen_features = sorted(
-                    np.random.choice(
+                chosen_features = np.random.choice(
                         features,
                         size=max(1, self.max_features),
                         replace=False
-                    )
                 )
-
             elif ("auto" in str(self.max_features)) or ("sqrt" in str(self.max_features)):
-                chosen_features = sorted(
-                    np.random.choice(
+                chosen_features = np.random.choice(
                         features,
                         size=max(1, int(np.sqrt(len(features)))),
                         replace=False
-                    )
                 )
-
             elif "log" in str(self.max_features):
-                chosen_features = sorted(
-                    np.random.choice(
+                chosen_features = np.random.choice(
                         features,
                         size=max(1, int(np.log2(len(features)))),
                         replace=False
-                    )
                 )
-
             else:
-                chosen_features = sorted(
-                    np.random.choice(
+                chosen_features = np.random.choice(
                         features,
                         size=max(1, int(self.max_features*len(features))),
                         replace=False,
-                    )
                 )
-            return copy(chosen_features)
+            return chosen_features
 
         def get_probas(tree, output=np.array([])):
             tree = copy(tree)
@@ -130,18 +118,27 @@ class DecisionTreeClassifier():
             indexs = copy(indexs)
             candidate_splits = {}
             chosen_features = choose_features()
+            #print(chosen_features)
             for feature in chosen_features:
                 candidate_splits[feature] = {}
                 values = np.unique(X[indexs, feature])
-                ###################################################
-                # making values into bin_split_points
+#                 ###################################################
+#                 # making values into bin_split_points
+#                 n_unique = len(values)
+#                 if (n_unique-1) >= self.n_bins:
+#                     lo = 1/self.n_bins
+#                     hi = lo * (self.n_bins-1)
+#                     quantiles = np.linspace(lo, hi, self.n_bins-1)
+#                     values = list(np.quantile(values, q=quantiles))
+                ###################################################    
                 n_unique = len(values)
-                if (n_unique-1) >= self.n_bins:
+                if (n_unique) > self.n_bins:
                     lo = 1/self.n_bins
                     hi = lo * (self.n_bins-1)
                     quantiles = np.linspace(lo, hi, self.n_bins-1)
                     values = list(np.quantile(values, q=quantiles))
-                ###################################################    
+                
+                
                 for value in values:
                     indexs_0 = indexs[X[indexs, feature] < value]
                     indexs_1 = indexs[X[indexs, feature] >= value]
