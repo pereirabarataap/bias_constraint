@@ -1,8 +1,8 @@
 import os
 
-os.environ["MKL_NUM_THREADS"] = "1" 
-os.environ["NUMEXPR_NUM_THREADS"] = "1" 
-os.environ["OMP_NUM_THREADS"] = "1" 
+# os.environ["MKL_NUM_THREADS"] = "1" 
+# os.environ["NUMEXPR_NUM_THREADS"] = "1" 
+# os.environ["OMP_NUM_THREADS"] = "1" 
 
 import dccp
 import random
@@ -32,9 +32,9 @@ from sklearn.preprocessing import PolynomialFeatures as PF
 from sklearn.metrics import mean_squared_error, roc_auc_score
 from sklearn.preprocessing import StandardScaler as SS, RobustScaler as RS
 
-os.environ["MKL_NUM_THREADS"] = "1" 
-os.environ["NUMEXPR_NUM_THREADS"] = "1" 
-os.environ["OMP_NUM_THREADS"] = "1" 
+# os.environ["MKL_NUM_THREADS"] = "1" 
+# os.environ["NUMEXPR_NUM_THREADS"] = "1" 
+# os.environ["OMP_NUM_THREADS"] = "1" 
 
 class DensityRatioEstimator:
     """
@@ -775,8 +775,7 @@ class BiasConstraintDecisionTreeClassifier():
         self.random_state = random_state        
         self.compound_bias_method = compound_bias_method
         
-        seed(random_state)
-        np.random.seed(random_state)
+    
         if self.criterion not in ["entropy", "auc", "faht", "ig", "fg", "kamiran_add", "kamiran_div", "kamiran_sub"]:
             self.criterion = "auc"
             warnings.warn("criterion undefined -> setting criterion to auc")
@@ -806,7 +805,6 @@ class BiasConstraintDecisionTreeClassifier():
         y -> one_dim pandas.df or np.array: only binary
         b -> any_dim pandas.df or np.array: treated as str
         """
-        seed(self.random_state)
         np.random.seed(self.random_state)
         self.X = np.array(X)
         if self.criterion=="auc":
@@ -830,99 +828,72 @@ class BiasConstraintDecisionTreeClassifier():
         self.features = all_features
         # self.samples -> set of indexs according to sampling
         if "int" in str(type(self.n_samples)):
-            self.samples = np.array(sorted(
+            self.samples = np.array(
                 np.random.choice(
                     all_indexs,
                     size=self.n_samples,
                     replace=self.boot_replace
                 )
-            ))
+            )
         else:
-            self.samples = np.array(sorted(
+            self.samples = np.array(
                 np.random.choice(
                     all_indexs,
                     size=int(self.n_samples*len(all_indexs)),
                     replace=self.boot_replace,
                 )
-            ))
+            )
         
         self.pred_th = sum(self.y[self.samples]==self.y_pos) / len(self.samples)
-        
-#         # self.features -> set of features according to sampling
-#         if "int" in str(type(self.n_features)):
-#             self.features = sorted(
-#                 np.random.choice(
-#                     all_features,
-#                     size=max(1, self.n_features),
-#                     replace=False
-#                 )
-#             )
-#         else:
-#             self.features = sorted(
-#                 np.random.choice(
-#                     all_features,
-#                     size=max(1, int(self.n_features*len(all_features))),
-#                     replace=False,
-#                 )
-#             )
-        
-        # returns a dictionary as {feature: cutoff_candidate_i} meant as <=
+
+        def choose_features():   
+            if "int" in str(type(self.max_features)):
+                chosen_features = np.random.choice(
+                        features,
+                        size=max(1, self.max_features),
+                        replace=False
+                )
+            elif ("auto" in str(self.max_features)) or ("sqrt" in str(self.max_features)):
+                chosen_features = np.random.choice(
+                        features,
+                        size=max(1, int(np.sqrt(len(features)))),
+                        replace=False
+                )
+            elif "log" in str(self.max_features):
+                chosen_features = np.random.choice(
+                        features,
+                        size=max(1, int(np.log2(len(features)))),
+                        replace=False
+                )
+            else:
+                chosen_features = np.random.choice(
+                        features,
+                        size=max(1, int(self.max_features*len(features))),
+                        replace=False,
+                )
+            return chosen_features
+    
+        # returns a dictionary as {feature: cutoff_candidate_i} meant as <
         def get_candidate_splits(indexs):
-            
-            def choose_features():
-                # self.features -> set of features according to sampling
-                if "int" in str(type(self.n_features)):
-                    chosen_features = sorted(
-                        np.random.choice(
-                            self.features,
-                            size=max(1, self.n_features),
-                            replace=False
-                        )
-                    )
-                
-                elif ("auto" in str(self.n_features)) or ("sqrt" in str(self.n_features)):
-                    chosen_features = sorted(
-                        np.random.choice(
-                            self.features,
-                            size=max(1, int(np.sqrt(len(self.features)))),
-                            replace=False
-                        )
-                    )
-                
-                elif "log" in str(self.n_features):
-                    chosen_features = sorted(
-                        np.random.choice(
-                            self.features,
-                            size=max(1, int(np.log2(len(self.features)))),
-                            replace=False
-                        )
-                    )
-                    
-                else:
-                    chosen_features = sorted(
-                        np.random.choice(
-                            self.features,
-                            size=max(1, int(self.n_features*len(self.features))),
-                            replace=False,
-                        )
-                    )
-                return chosen_features
             
             n_bins = self.n_bins
             candidate_splits = {}
-            features = choose_features()
-            for feature in features:
+            chosen_features = choose_features()
+            #print(chosen_features)
+            for feature in chosen_features:
                 if "str" in str(type(self.X[0,feature])):
                     candidate_splits[feature] = list(pd.value_counts(self.X[indexs, feature]).keys())
                 else:
                     n_unique = len(np.unique(self.X[indexs,feature])) 
-                    if (n_unique-1) < n_bins:
-                        candidate_splits[feature] = sorted(np.unique(self.X[indexs,feature]))
-                    else:
-                        lo = 1/n_bins
-                        hi = lo * (n_bins-1)
-                        quantiles = np.linspace(lo, hi, n_bins-1)
-                        candidate_splits[feature] = list(np.quantile(self.X[indexs,feature], q=quantiles))
+                    values = np.unique(self.X[indexs, feature])
+                    n_unique = len(values)
+                    if (n_unique) > self.n_bins:
+                        lo = 1/self.n_bins
+                        hi = lo * (self.n_bins-1)
+                        quantiles = np.linspace(lo, hi, self.n_bins-1)
+                        values = list(np.quantile(values, q=quantiles))
+                    candidate_splits[feature] = values
+
             return candidate_splits
 
         # return score of split (dependant on criterion) ONLY AUC implemented so far
@@ -1057,8 +1028,8 @@ class BiasConstraintDecisionTreeClassifier():
                 index_left = indexs[self.X[indexs, feature] == split_value]
                 index_right = indexs[self.X[indexs, feature] != split_value]
             else:
-                index_left = indexs[self.X[indexs, feature] <= split_value]
-                index_right = indexs[self.X[indexs, feature] > split_value]
+                index_left = indexs[self.X[indexs, feature] < split_value]
+                index_right = indexs[self.X[indexs, feature] >= split_value]
                 
             if (len(index_left)==0) or (len(index_right)==0):
                 if self.criterion == "auc":
@@ -1319,16 +1290,16 @@ class BiasConstraintDecisionTreeClassifier():
 #                     return indexs
                 
                 ##print(indexs)
-                left_indexs = indexs[self.X[indexs, feature]<=split_value]
-                right_indexs = indexs[self.X[indexs, feature]>split_value]
+                left_indexs = indexs[self.X[indexs, feature]<split_value]
+                right_indexs = indexs[self.X[indexs, feature]>=split_value]
                 
                 if (len(left_indexs)==0) or (len(right_indexs)==0):
                     return indexs
                 
                 else:
                     tree[(feature, split_value)] = {
-                        "<=": build_tree(left_indexs, step=copy(step), old_score=copy(old_score), new_score=copy(new_score)),
-                        ">":  build_tree(right_indexs, step=copy(step), old_score=copy(old_score), new_score=copy(new_score))
+                        "<": build_tree(left_indexs, step=copy(step), old_score=copy(old_score), new_score=copy(new_score)),
+                        ">=":  build_tree(right_indexs, step=copy(step), old_score=copy(old_score), new_score=copy(new_score))
                     }
 
                     return tree
@@ -1344,11 +1315,11 @@ class BiasConstraintDecisionTreeClassifier():
             indexs = np.array(range(X.shape[0])) if len(indexs)==0 else indexs
             if type(tree)==type({}):
                 feature, value = list(tree.keys())[0]
-                left_indexs = indexs[X[indexs, feature]<=value]
-                sub_tree = tree[(feature, value)]["<="]
+                left_indexs = indexs[X[indexs, feature]<value]
+                sub_tree = tree[(feature, value)]["<"]
                 probas_dict = get_probas_dict(sub_tree, X, left_indexs, probas_dict)
-                right_indexs = indexs[X[indexs, feature]>value]
-                sub_tree = tree[(feature, value)][">"]
+                right_indexs = indexs[X[indexs, feature]>=value]
+                sub_tree = tree[(feature, value)][">="]
                 probas_dict = get_probas_dict(sub_tree, X, right_indexs, probas_dict)
                 return probas_dict
 
@@ -1379,11 +1350,11 @@ class BiasConstraintDecisionTreeClassifier():
                 indexs = np.array(range(X.shape[0])) if len(indexs)==0 else indexs
                 if type(tree)==type({}):
                     feature, value = list(tree.keys())[0]
-                    left_indexs = indexs[X[indexs, feature]<=value]
-                    sub_tree = tree[(feature, value)]["<="]
+                    left_indexs = indexs[X[indexs, feature]<value]
+                    sub_tree = tree[(feature, value)]["<"]
                     probas_dict = get_probas_dict(sub_tree, X, left_indexs, probas_dict)
-                    right_indexs = indexs[X[indexs, feature]>value]
-                    sub_tree = tree[(feature, value)][">"]
+                    right_indexs = indexs[X[indexs, feature]>=value]
+                    sub_tree = tree[(feature, value)][">="]
                     probas_dict = get_probas_dict(sub_tree, X, right_indexs, probas_dict)
                     return probas_dict
 
@@ -1481,8 +1452,6 @@ class BiasConstraintRandomForestClassifier():
         self.n_estimators = n_estimators
         self.compound_bias_method = compound_bias_method
         
-        seed(random_state)
-        np.random.seed(random_state)
         if self.criterion not in ["entropy", "auc", "faht", "ig", "fg", "kamiran_add", "kamiran_div", "kamiran_sub"]:
             self.criterion = "auc"
             warnings.warn("criterion undefined -> setting criterion to auc")
@@ -1510,17 +1479,17 @@ class BiasConstraintRandomForestClassifier():
         # Generating BCDForest
         dts = [
             BiasConstraintDecisionTreeClassifier(
-                n_bins=copy(self.n_bins),
-                min_leaf=copy(self.min_leaf),
-                max_depth=copy(self.max_depth),
-                n_samples=copy(self.n_samples),
-                criterion=copy(self.criterion),
-                random_state=copy(self.random_state+i),
-                n_features=copy(self.n_features),
-                bias_method=copy(self.bias_method),
-                orthogo_coef=copy(self.orthogo_coef),
-                boot_replace=copy(self.boot_replace),
-                compound_bias_method=copy(self.compound_bias_method),
+                n_bins=self.n_bins,
+                min_leaf=self.min_leaf,
+                max_depth=self.max_depth,
+                n_samples=self.n_samples,
+                criterion=self.criterion,
+                random_state=self.random_state+i,
+                n_features=self.n_features,
+                bias_method=self.bias_method,
+                orthogo_coef=self.orthogo_coef,
+                boot_replace=self.boot_replace,
+                compound_bias_method=self.compound_bias_method,
             )
             for i in range(self.n_estimators)
         ]
