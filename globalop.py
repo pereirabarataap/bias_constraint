@@ -30,8 +30,7 @@ class DecisionTreeClassifier():
         }
         
         def choose_features():
-            np.random.seed(self.random_state)
-            # features -> set of features according to sampling
+            
             if "int" in str(type(self.max_features)):
                 chosen_features = sorted(
                     np.random.choice(
