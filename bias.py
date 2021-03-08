@@ -809,9 +809,13 @@ class BiasConstraintDecisionTreeClassifier():
         seed(self.random_state)
         np.random.seed(self.random_state)
         self.X = np.array(X)
-        self.y = np.array(y).astype(str)
-        self.b = np.array(b).astype(str)
-        
+        if self.criterion=="auc":
+            self.y = np.array(y).astype(int)
+            self.b = np.array(b).astype(int)
+        else:
+            self.y = np.array(y).astype(str)
+            self.b = np.array(b).astype(str)
+
         if (self.X.shape[0]!=self.y.shape[0]) or (self.X.shape[0]!=self.b.shape[0]) or (self.y.shape[0]!=self.b.shape[0]):
             raise Exception("X, y, and b lenghts do not match")    
         if len(self.y.shape)==1 or len(self.y.ravel())==len(self.X):
@@ -820,7 +824,7 @@ class BiasConstraintDecisionTreeClassifier():
             self.b = self.b.ravel()    
         
         self.b_neg, self.b_pos = np.unique(self.b)
-        self.y_neg, self.y_pos = np.unique(self.y)
+        self.y_neg, self.y_pos = (0, 1)
         all_indexs = range(X.shape[0])
         all_features = range(X.shape[1])
         self.features = all_features
@@ -925,21 +929,29 @@ class BiasConstraintDecisionTreeClassifier():
         def evaluate_split(feature, split_value, indexs):
             
             # get auc of y associatated with split
-            def get_auc_y(index_left, indexs):
-                true_pos = sum(self.y[index_left]==self.y_pos)
-                false_pos = sum(self.y[index_left]==self.y_neg)
-                actual_pos = sum(self.y[indexs]==self.y_pos)
-                actual_neg = sum(self.y[indexs]==self.y_neg)
-                tpr = true_pos / actual_pos
-                fpr = false_pos / actual_neg
-                auc_y = (1 + tpr - fpr) / 2
-                auc_y = max(1 - auc_y, auc_y)
-                if np.isnan(auc_y):
-                    auc_y = 1
+            def get_auc_y(index_left, index_right):
+                
+                n_left = len(index_left)
+                n_right = len(index_right)
+                y_left = self.y[index_left]
+                y_right = self.y[index_right]
+                proba_left = sum(y_left==1)/n_left
+                proba_right = sum(y_right==1)/n_right
+                
+                y_prob = np.concatenate(
+                    (np.repeat(proba_left, n_left), np.repeat(proba_right, n_right))
+                )
+                y_true = np.concatenate(
+                    (y_left, y_right)
+                )
+            
+                auc_y = roc_auc_score(y_true, y_prob)
+                
                 return auc_y
             
             # get auc of b associatated with split
-            def get_auc_b(index_left, indexs):
+            def get_auc_b(index_left, index_right):
+                indexs = np.concatenate((index_left, index_right))
                 if len(self.b.shape)==1: #if we have only 1 bias column
                     b_unique = np.unique(self.b[indexs])
                     
@@ -947,17 +959,27 @@ class BiasConstraintDecisionTreeClassifier():
                         auc_b = 1
                         
                     elif len(b_unique)==2: # if we are dealing with a binary case
-                        true_pos = sum(self.b[index_left]==b_unique[0])
-                        false_pos = sum(self.b[index_left]==b_unique[1])
-                        actual_pos = sum(self.b[indexs]==b_unique[0])
-                        actual_neg = sum(self.b[indexs]==b_unique[1])
-                        tpr = true_pos / actual_pos
-                        fpr = false_pos / actual_neg
-                        auc_b = (1 + tpr - fpr) / 2
-                        auc_b = max(1 - auc_b, auc_b)
-                        if np.isnan(auc_b):
-                            auc_b = 1
+                        n_left = len(index_left)
+                        n_right = len(index_right)
+                        y_left = self.y[index_left]
+                        y_right = self.y[index_right]
+                        proba_left = sum(y_left==1)/n_left
+                        proba_right = sum(y_right==1)/n_right
+
+                        y_prob = np.concatenate(
+                            (np.repeat(proba_left, n_left), np.repeat(proba_right, n_right))
+                        )
+                        y_true = np.concatenate(
+                            (y_left, y_right)
+                        )
                         
+                        b_left = self.b[index_left]
+                        b_right = self.b[index_right]
+                        b_true = np.concatenate(
+                            (b_left, b_right)
+                        )
+                        auc_b = roc_auc_score(b_true, y_prob)
+                        auc_b = max(1-auc_b, auc_b)
                     else: # apply OvR
                         auc_storage = []
                         wts_storage = []
@@ -1039,11 +1061,14 @@ class BiasConstraintDecisionTreeClassifier():
                 index_right = indexs[self.X[indexs, feature] > split_value]
                 
             if (len(index_left)==0) or (len(index_right)==0):
-                score = -np.inf
+                if self.criterion == "auc":
+                    score = 0
+                else:
+                    score = -np.inf
             elif self.criterion == "auc":
-                    auc_y = get_auc_y(index_left, indexs)
-                    auc_b = get_auc_b(index_left, indexs)
-                    score = (1-self.orthogo_coef)*auc_y - self.orthogo_coef*auc_b
+                auc_y = get_auc_y(index_left, indexs)
+                auc_b = get_auc_b(index_left, indexs)
+                score = (1-self.orthogo_coef)*auc_y - self.orthogo_coef*auc_b
             
             elif self.criterion == "faht":
                 
@@ -1246,19 +1271,25 @@ class BiasConstraintDecisionTreeClassifier():
                 
         # return best (sscore, feature, split_value) dependant on criterion and indexs
         def get_best_split(indexs):
-            best_score = -np.inf
+            if self.criterion=="auc":
+                best_score = 0
+            else:
+                best_score = -np.inf
+            # only positive scores are desirable
+            # if negative score, then b_auc > s_auc which we don't want
             candidate_splits = get_candidate_splits(indexs)
             for feature in candidate_splits:
                 for split_value in candidate_splits[feature]:
                     score = evaluate_split(feature, split_value, indexs)
-                    if score >= best_score:
+                    #print(score)
+                    if score > best_score:
                         best_score = score
                         best_feature = feature
                         best_split_value = split_value
-            
-            if best_score==-np.inf: # this only happens if there are no more different feature values for splitting
+            if (best_score==-np.inf):
                 best_feature, best_split_value = np.nan, np.nan
-            
+            if (self.criterion=="auc") and (best_score==0):
+                best_feature, best_split_value = np.nan, np.nan
             return best_score, best_feature, best_split_value
         
         # recursively grow the actual tree ---> {split1: {...}}
@@ -1278,9 +1309,12 @@ class BiasConstraintDecisionTreeClassifier():
                 score, feature, split_value = get_best_split(indexs)
                 old_score = copy(new_score)
                 new_score = copy(score)
+                #print(new_score)
                 if new_score==-np.inf: ## in case no more feature values exist for splitting
                     return indexs
                 
+                if (self.criterion=="auc") and (new_score<=0):
+                    return indexs
 #                 if new_score <= old_score:
 #                     return indexs
                 
@@ -1301,58 +1335,81 @@ class BiasConstraintDecisionTreeClassifier():
         
         self.tree = build_tree(self.samples)
         self.is_fit=True   
+       
+    def predict_proba(self, X):
+
+        def get_probas_dict(tree, X, indexs=np.array([]), probas_dict={}):
+
+            indexs = np.array(range(X.shape[0])) if len(indexs)==0 else indexs
+            if type(tree)==type({}):
+                feature, value = list(tree.keys())[0]
+                left_indexs = indexs[X[indexs, feature]<=value]
+                sub_tree = tree[(feature, value)]["<="]
+                probas_dict = get_probas_dict(sub_tree, X, left_indexs, probas_dict)
+                right_indexs = indexs[X[indexs, feature]>value]
+                sub_tree = tree[(feature, value)][">"]
+                probas_dict = get_probas_dict(sub_tree, X, right_indexs, probas_dict)
+                return probas_dict
+
+            else:
+                index = copy(tree)
+                sub_y = self.y[index]
+                proba = sum(sub_y)/len(sub_y)
+                if proba in probas_dict:
+                    probas_dict[proba] += indexs.tolist()
+                else:
+                    probas_dict[proba] = indexs.tolist()
+                return probas_dict
+
+        proba = np.repeat(0.0, X.shape[0])
+        probas_dict = get_probas_dict(self.tree, X)
+        for proba_value in probas_dict:
+            proba_index = np.array(probas_dict[proba_value])
+            proba[proba_index] =  proba_value
+
+        return proba
     
     def predict(self, X):
-        def get_sub_tree(sub_tree, x):
-            if type(sub_tree) != type(np.array([1])):
-                feature, value = list(sub_tree.keys())[0]
-                if x[feature] <= value:
-                    sub_tree = sub_tree[feature, value]["<="]
+        
+        def predict_proba(X):
+
+            def get_probas_dict(tree, X, indexs=np.array([]), probas_dict={}):
+
+                indexs = np.array(range(X.shape[0])) if len(indexs)==0 else indexs
+                if type(tree)==type({}):
+                    feature, value = list(tree.keys())[0]
+                    left_indexs = indexs[X[indexs, feature]<=value]
+                    sub_tree = tree[(feature, value)]["<="]
+                    probas_dict = get_probas_dict(sub_tree, X, left_indexs, probas_dict)
+                    right_indexs = indexs[X[indexs, feature]>value]
+                    sub_tree = tree[(feature, value)][">"]
+                    probas_dict = get_probas_dict(sub_tree, X, right_indexs, probas_dict)
+                    return probas_dict
+
                 else:
-                    sub_tree = sub_tree[feature, value][">"]
-                return get_sub_tree(sub_tree, x)
-            else:
-                return sub_tree
-        if len(X.shape)!=2:
-            raise Exception("X.shape must be (n_instances, features)")
-        if not self.is_fit:
-            raise Exception("tree has not been fit")
-        else:
-            X = np.array(X)
-            predictions = []
-            for x in X:
-                sub_tree = get_sub_tree(self.tree, x)
-                prediction = sum(self.y[sub_tree]==self.y_pos) / len(sub_tree)
-                if prediction >= self.pred_th:
-                    predictions.append(self.y_pos)
-                else:
-                    predictions.append(self.y_neg)
-            return np.array(predictions)
-                     
-    def predict_proba(self, X):
-        def get_sub_tree(sub_tree, x):
-            if type(sub_tree) != type(np.array([1])):
-                feature, value = list(sub_tree.keys())[0]
-                if x[feature] <= value:
-                    sub_tree = sub_tree[feature, value]["<="]
-                else:
-                    sub_tree = sub_tree[feature, value][">"]
-                return get_sub_tree(sub_tree, x)
-            else:
-                return sub_tree
-        if len(X.shape)!=2:
-            raise Exception("X.shape must be (n_instances, features)")
-        if not self.is_fit:
-            raise Exception("tree has not been fit")
-        else:
-            X = np.array(X)
-            predictions = []
-            for x in X:
-                sub_tree = get_sub_tree(self.tree, x)
-                prediction = sum(self.y[sub_tree]==self.y_pos) / len(sub_tree)
-                predictions.append(prediction)
-            return np.array(predictions)
-            
+                    index = copy(tree)
+                    sub_y = self.y[index]
+                    proba = sum(sub_y)/len(sub_y)
+                    if proba in probas_dict:
+                        probas_dict[proba] += indexs.tolist()
+                    else:
+                        probas_dict[proba] = indexs.tolist()
+                    return probas_dict
+
+            proba = np.repeat(0.0, X.shape[0])
+            probas_dict = get_probas_dict(self.tree, X)
+            for proba_value in probas_dict:
+                proba_index = np.array(probas_dict[proba_value])
+                proba[proba_index] =  proba_value
+
+            return proba
+        
+        probas = predict_proba(X)
+        predicts = np.repeat(0, X.shape[0])
+        predicts[probas>=self.pred_th] = 1
+        
+        return predicts
+    
     def __str__(self):
         string = "BiasConstraintDecisionTreeClassifier():" + "\n" + \
                 "  is_fit=" + str(self.is_fit) + "\n" + \
@@ -1489,7 +1546,7 @@ class BiasConstraintRandomForestClassifier():
             return fit_dt_batch
 
         # Fitting
-        self.y_neg, self.y_pos = np.unique(y)
+        self.y_neg, self.y_pos = 0, 1
         dts = self.trees
         dt_batches = list(batch(dts, n_jobs=self.n_jobs))
         fit_dt_batches = Parallel(n_jobs=self.n_jobs)(
