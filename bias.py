@@ -759,8 +759,8 @@ class BiasConstraintLogisticRegression():
 
 class BiasConstraintDecisionTreeClassifier():
     def __init__(self,
-        n_bins=10, min_leaf=3, max_depth=5, n_samples=1.0, n_features="auto", boot_replace=True, random_state=42,
-        criterion='{"entropy", "auc", "faht", "ig", "fg"}', bias_method="avg", compound_bias_method="avg", orthogo_coef=.6
+        n_bins=10, min_leaf=3, max_depth=5, n_samples=1.0, max_features="auto", bootstrap=True, random_state=42,
+        criterion='{"entropy", "auc", "faht", "ig", "fg"}', bias_method="avg", compound_bias_method="avg", orthogonality=.6
     ):
         self.is_fit = False
         self.n_bins = n_bins
@@ -768,10 +768,10 @@ class BiasConstraintDecisionTreeClassifier():
         self.max_depth = max_depth
         self.n_samples = n_samples
         self.criterion = criterion
-        self.n_features = n_features
+        self.max_features = max_features
         self.bias_method = bias_method
-        self.orthogo_coef = orthogo_coef
-        self.boot_replace = boot_replace
+        self.orthogonality = orthogonality
+        self.bootstrap = bootstrap
         self.random_state = random_state        
         self.compound_bias_method = compound_bias_method
         
@@ -794,10 +794,10 @@ class BiasConstraintDecisionTreeClassifier():
             raise Exception("max_depth must be an int, not " + str(type(self.max_depth)))
         if ("int" not in str(type(self.n_samples))) and ("float" not in str(type(self.n_samples))):
             raise Exception("n_samples must be an int or float, not " + str(type(self.n_samples)))
-#         if ("int" not in str(type(self.n_features))) and ("float" not in str(type(self.n_features))):
-#             raise Exception("n_features must be an int or float, not " + str(type(self.n_features)))
-        if ("int" not in str(type(self.orthogo_coef))) and ("float" not in str(type(self.orthogo_coef))):
-            raise Exception("orthogo_coef must be an int or float, not " + str(type(self.orthogo_coef)))
+#         if ("int" not in str(type(self.max_features))) and ("float" not in str(type(self.max_features))):
+#             raise Exception("max_features must be an int or float, not " + str(type(self.max_features)))
+        if ("int" not in str(type(self.orthogonality))) and ("float" not in str(type(self.orthogonality))):
+            raise Exception("orthogonality must be an int or float, not " + str(type(self.orthogonality)))
                                 
     def fit(self, X="X", y="y", b="bias"):
         """
@@ -807,13 +807,10 @@ class BiasConstraintDecisionTreeClassifier():
         """
         np.random.seed(self.random_state)
         self.X = np.array(X)
-        if self.criterion=="auc":
-            self.y = np.array(y).astype(int)
-            self.b = np.array(b).astype(int)
-        else:
-            self.y = np.array(y).astype(str)
-            self.b = np.array(b).astype(str)
-
+    
+        self.y = np.array(y).astype(int)
+        self.b = np.array(b).astype(int)
+    
         if (self.X.shape[0]!=self.y.shape[0]) or (self.X.shape[0]!=self.b.shape[0]) or (self.y.shape[0]!=self.b.shape[0]):
             raise Exception("X, y, and b lenghts do not match")    
         if len(self.y.shape)==1 or len(self.y.ravel())==len(self.X):
@@ -821,8 +818,8 @@ class BiasConstraintDecisionTreeClassifier():
         if len(self.b.shape)==1 or len(self.b.ravel())==len(self.X):
             self.b = self.b.ravel()    
         
-        self.b_neg, self.b_pos = np.unique(self.b)
-        self.y_neg, self.y_pos = (0, 1)
+        self.b_neg, self.b_pos = 0, 1
+        self.y_neg, self.y_pos = 0, 1
         all_indexs = range(X.shape[0])
         all_features = range(X.shape[1])
         self.features = all_features
@@ -832,7 +829,7 @@ class BiasConstraintDecisionTreeClassifier():
                 np.random.choice(
                     all_indexs,
                     size=self.n_samples,
-                    replace=self.boot_replace
+                    replace=self.bootstrap
                 )
             )
         else:
@@ -840,26 +837,26 @@ class BiasConstraintDecisionTreeClassifier():
                 np.random.choice(
                     all_indexs,
                     size=int(self.n_samples*len(all_indexs)),
-                    replace=self.boot_replace,
+                    replace=self.bootstrap,
                 )
             )
         
         self.pred_th = sum(self.y[self.samples]==self.y_pos) / len(self.samples)
 
         def choose_features():   
-            if "int" in str(type(self.n_features)):
+            if "int" in str(type(self.max_features)):
                 chosen_features = np.random.choice(
                         self.features,
-                        size=max(1, self.n_features),
+                        size=max(1, self.max_features),
                         replace=False
                 )
-            elif ("auto" in str(self.n_features)) or ("sqrt" in str(self.n_features)):
+            elif ("auto" in str(self.max_features)) or ("sqrt" in str(self.max_features)):
                 chosen_features = np.random.choice(
                         self.features,
                         size=max(1, int(np.sqrt(len(self.features)))),
                         replace=False
                 )
-            elif "log" in str(self.n_features):
+            elif "log" in str(self.max_features):
                 chosen_features = np.random.choice(
                         self.features,
                         size=max(1, int(np.log2(len(self.features)))),
@@ -868,7 +865,7 @@ class BiasConstraintDecisionTreeClassifier():
             else:
                 chosen_features = np.random.choice(
                         self.features,
-                        size=max(1, int(self.n_features*len(self.features))),
+                        size=max(1, int(self.max_features*len(self.features))),
                         replace=False,
                 )
             return chosen_features
@@ -1033,7 +1030,7 @@ class BiasConstraintDecisionTreeClassifier():
             elif self.criterion == "auc":
                 auc_y = get_auc_y(index_left, index_right)
                 auc_b = get_auc_b(index_left, index_right)
-                score = (1-self.orthogo_coef)*auc_y - self.orthogo_coef*auc_b
+                score = (1-self.orthogonality)*auc_y - self.orthogonality*auc_b
             
             elif self.criterion == "faht":
                 
@@ -1237,7 +1234,7 @@ class BiasConstraintDecisionTreeClassifier():
         # return best (sscore, feature, split_value) dependant on criterion and indexs
         def get_best_split(indexs):
             if self.criterion=="auc":
-                base_score = (1-self.orthogo_coef)*0.5 - self.orthogo_coef*0.5
+                base_score = (1-self.orthogonality)*0.5 - self.orthogonality*0.5
                 best_score = copy(base_score)
             else:
                 best_score = -np.inf
@@ -1337,12 +1334,15 @@ class BiasConstraintDecisionTreeClassifier():
         for proba_value in probas_dict:
             proba_index = np.array(probas_dict[proba_value])
             proba[proba_index] =  proba_value
-
-        return proba
+        
+        probas = proba.reshape(-1,1)
+        probas = np.concatenate((1-probas, probas), axis=1)
+        
+        return probas
     
     def predict(self, X):
         
-        def predict_proba(X):
+        def predict_proba(self, X):
 
             def get_probas_dict(tree, X, indexs=np.array([]), probas_dict={}):
 
@@ -1361,18 +1361,24 @@ class BiasConstraintDecisionTreeClassifier():
                     index = copy(tree)
                     sub_y = self.y[index]
                     proba = sum(sub_y)/len(sub_y)
-                    probas_dict[indexs] = proba
+                    if proba in probas_dict:
+                        probas_dict[proba] += indexs.tolist()
+                    else:
+                        probas_dict[proba] = indexs.tolist()
                     return probas_dict
 
             proba = np.repeat(0.0, X.shape[0])
             probas_dict = get_probas_dict(self.tree, X)
-            for indexs in probas_dict:
-                proba_value = probas_dict[indexs]
-                proba[indexs] =  proba_value
+            for proba_value in probas_dict:
+                proba_index = np.array(probas_dict[proba_value])
+                proba[proba_index] =  proba_value
 
-            return proba
+            probas = proba.reshape(-1,1)
+            probas = np.concatenate((1-probas, probas), axis=1)
+
+            return probas
         
-        probas = predict_proba(X)
+        proba = predict_proba(X)[:,1]
         predicts = np.repeat(0, X.shape[0])
         predicts[probas>=self.pred_th] = 1
         
@@ -1386,10 +1392,10 @@ class BiasConstraintDecisionTreeClassifier():
                 "  max_depth=" + str(self.max_depth) + "\n" + \
                 "  n_samples=" + str(self.n_samples) + "\n" + \
                 "  criterion=" + str(self.criterion) + "\n" + \
-                "  n_features=" + str(self.n_features) + "\n" + \
+                "  max_features=" + str(self.max_features) + "\n" + \
                 "  bias_method=" +str(self.bias_method) + "\n" + \
-                "  orthogo_coef=" +str(self.orthogo_coef) + "\n" + \
-                "  boot_replace=" +str(self.boot_replace) + "\n" + \
+                "  orthogonality=" +str(self.orthogonality) + "\n" + \
+                "  bootstrap=" +str(self.bootstrap) + "\n" + \
                 "  random_state=" + str(self.random_state) + "\n" + \
                 "  compound_bias_method=" + str(self.compound_bias_method)
         return string
@@ -1402,18 +1408,18 @@ class BiasConstraintDecisionTreeClassifier():
                 "  max_depth=" + str(self.max_depth) + "\n" + \
                 "  n_samples=" + str(self.n_samples) + "\n" + \
                 "  criterion=" + str(self.criterion) + "\n" + \
-                "  n_features=" + str(self.n_features) + "\n" + \
+                "  max_features=" + str(self.max_features) + "\n" + \
                 "  bias_method=" +str(self.bias_method) + "\n" + \
-                "  orthogo_coef=" +str(self.orthogo_coef) + "\n" + \
-                "  boot_replace=" +str(self.boot_replace) + "\n" + \
+                "  orthogonality=" +str(self.orthogonality) + "\n" + \
+                "  bootstrap=" +str(self.bootstrap) + "\n" + \
                 "  random_state=" + str(self.random_state) + "\n" + \
                 "  compound_bias_method=" + str(self.compound_bias_method)
         return string
     
 class BiasConstraintRandomForestClassifier():
     def __init__(self, n_estimators=501, n_jobs=-1,
-        n_bins=100, min_leaf=3, max_depth=5, n_samples=1.0, n_features="auto", boot_replace=True, random_state=42,
-        criterion="auc", bias_method="avg", compound_bias_method="avg", orthogo_coef=.6
+        n_bins=100, min_leaf=3, max_depth=5, n_samples=1.0, max_features="auto", bootstrap=True, random_state=42,
+        criterion="auc", bias_method="avg", compound_bias_method="avg", orthogonality=.6
     ):
         """
         Bias Constraint Forest Classifier
@@ -1423,17 +1429,17 @@ class BiasConstraintRandomForestClassifier():
         max_depth -> int: max number of allowed splits per tree
         n_samples -> int: number of samples to bootstrap
                   -> float: proportion of samples to bootstrap
-        n_features -> int: number of samples to bootstrap
+        max_features -> int: number of samples to bootstrap
                    -> float: proportion of samples to bootstrap
                    -> str:
                        -> "auto"/"sqrt": sqrt of features is used
                        -> "log"/"log2": log2 of features is used
-        boot_replace -> bool: bootstrap strategy (with out without replacement)
+        bootstrap -> bool: bootstrap strategy (with out without replacement)
         random_state -> int: seed for all random processes
         criterion -> str: ["entropy", "auc"] score criterion for splitting
         bias_method -> str: ["avg", "w_avg", "xtr"] OvR approach for categorical bias attribute
         compound_bias_method -> str: ["avg", "xtr"] aggregation approach for multiple bias attributes
-        orthogo_coef -> int/float: strength of bias constraint
+        orthogonality -> int/float: strength of bias constraint
         n_jobs -> int: CPU usage / -1 for all 
         """
         self.is_fit = False
@@ -1443,10 +1449,10 @@ class BiasConstraintRandomForestClassifier():
         self.max_depth = max_depth
         self.n_samples = n_samples
         self.criterion = criterion
-        self.n_features = n_features
+        self.max_features = max_features
         self.bias_method = bias_method
-        self.orthogo_coef = orthogo_coef
-        self.boot_replace = boot_replace
+        self.orthogonality = orthogonality
+        self.bootstrap = bootstrap
         self.random_state = random_state        
         self.n_estimators = n_estimators
         self.compound_bias_method = compound_bias_method
@@ -1469,10 +1475,10 @@ class BiasConstraintRandomForestClassifier():
             raise Exception("max_depth must be an int, not " + str(type(self.max_depth)))
         if ("int" not in str(type(self.n_samples))) and ("float" not in str(type(self.n_samples))):
             raise Exception("n_samples must be an int or float, not " + str(type(self.n_samples)))
-#         if ("int" not in str(type(self.n_features))) and ("float" not in str(type(self.n_features))):
-#             raise Exception("n_features must be an int or float, not " + str(type(self.n_features)))
-        if ("int" not in str(type(self.orthogo_coef))) and ("float" not in str(type(self.orthogo_coef))):
-            raise Exception("orthogo_coef must be an int or float, not " + str(type(self.orthogo_coef)))
+#         if ("int" not in str(type(self.max_features))) and ("float" not in str(type(self.max_features))):
+#             raise Exception("max_features must be an int or float, not " + str(type(self.max_features)))
+        if ("int" not in str(type(self.orthogonality))) and ("float" not in str(type(self.orthogonality))):
+            raise Exception("orthogonality must be an int or float, not " + str(type(self.orthogonality)))
         
         
         # Generating BCDForest
@@ -1484,10 +1490,10 @@ class BiasConstraintRandomForestClassifier():
                 n_samples=self.n_samples,
                 criterion=self.criterion,
                 random_state=self.random_state+i,
-                n_features=self.n_features,
+                max_features=self.max_features,
                 bias_method=self.bias_method,
-                orthogo_coef=self.orthogo_coef,
-                boot_replace=self.boot_replace,
+                orthogonality=self.orthogonality,
+                bootstrap=self.bootstrap,
                 compound_bias_method=self.compound_bias_method,
             )
             for i in range(self.n_estimators)
@@ -1531,7 +1537,7 @@ class BiasConstraintRandomForestClassifier():
         def predict_proba_parallel(dt_batch, X, i):
             probas = []
             for tree in dt_batch:
-                probas.append(tree.predict_proba(X))
+                probas.append(tree.predict_proba(X)[:,1])
             return np.array(probas)
         
         def batch(iterable, n_jobs=1):
@@ -1541,11 +1547,9 @@ class BiasConstraintRandomForestClassifier():
             n = ceil(l / n_jobs)
             for ndx in range(0, l, n):
                 yield iterable[ndx:min(ndx + n, l)]
-
-        
+                
         if not self.fit:
             warnings.warn("Forest has not been fit(X,y,s)")
-        
         
         else:
             dt_batches = list(batch(self.trees, n_jobs=self.n_jobs))
@@ -1564,7 +1568,9 @@ class BiasConstraintRandomForestClassifier():
                     (y_prob, y_preds[i]),
                     axis=0
                 )
-            return np.mean(y_prob, axis=0)
+            probas = np.mean(y_prob, axis=0).reshape(-1,1)
+            probas = np.concatenate((1-probas, probas), axis=1)
+            return probas
     
     def predict(self, X):
         def predict_parallel(tree, X):
