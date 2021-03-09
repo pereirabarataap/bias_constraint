@@ -759,8 +759,8 @@ class BiasConstraintLogisticRegression():
 
 class BiasConstraintDecisionTreeClassifier():
     def __init__(self,
-        n_bins=10, min_leaf=3, max_depth=5, n_samples=1.0, max_features="auto", bootstrap=True, random_state=42,
-        criterion='{"entropy", "auc", "faht", "ig", "fg"}', bias_method="avg", compound_bias_method="avg", orthogonality=.6
+        n_bins=2, min_leaf=1, max_depth=2, n_samples=1.0, max_features="auto", bootstrap=True, random_state=42,
+        criterion="auc", bias_method="avg", compound_bias_method="avg", orthogonality=.5
     ):
         self.is_fit = False
         self.n_bins = n_bins
@@ -1417,9 +1417,9 @@ class BiasConstraintDecisionTreeClassifier():
         return string
     
 class BiasConstraintRandomForestClassifier():
-    def __init__(self, n_estimators=501, n_jobs=-1,
-        n_bins=100, min_leaf=3, max_depth=5, n_samples=1.0, max_features="auto", bootstrap=True, random_state=42,
-        criterion="auc", bias_method="avg", compound_bias_method="avg", orthogonality=.6
+    def __init__(self, n_estimators=500, n_jobs=-1,
+        n_bins=2, min_leaf=1, max_depth=2, n_samples=1.0, max_features="auto", bootstrap=True, random_state=42,
+        criterion="auc", bias_method="avg", compound_bias_method="avg", orthogonality=.5
     ):
         """
         Bias Constraint Forest Classifier
