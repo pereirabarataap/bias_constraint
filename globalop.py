@@ -7,8 +7,11 @@ from sklearn.metrics import roc_auc_score
 
 class DecisionTreeClassifier():
 
-    def __init__(self, n_bins=4, max_depth=3, bootstrap=False, max_features="sqrt", orthogonality=0.5, score_weight=False, random_state=42):
+    def __init__(self,
+        criterion="auc_div", n_bins=2, max_depth=2, bootstrap=False, max_features="sqrt", orthogonality=0.5, score_weight=False, random_state=42
+    ):
         self.n_bins = n_bins
+        self.criterion = criterion
         self.max_depth = max_depth
         self.bootstrap = bootstrap
         self.max_features = max_features
@@ -109,7 +112,10 @@ class DecisionTreeClassifier():
                 y_auc = roc_auc_score(y_true, probas)
                 s_auc = roc_auc_score(s_true, probas)
             s_auc = max(1-s_auc, s_auc)
-            score = (1-self.orthogonality)*y_auc - self.orthogonality*s_auc
+            if self.criterion=="auc_sub":
+                score = (1-self.orthogonality)*y_auc - self.orthogonality*s_auc
+            elif self.criterion=="auc_div":
+                score = y_auc / s_auc
             return copy(score)
 
         def get_candidate_splits(indexs):
@@ -393,9 +399,12 @@ class DecisionTreeClassifier():
 
 class RandomForestClassifier():
     
-    def __init__(self, n_estimators=100, n_bins=4, max_depth=3, bootstrap=False, max_features="sqrt", orthogonality=0.5, score_weight=False, random_state=42, n_jobs=-1):
+    def __init__(self,
+        criterion="auc_div", n_estimators=100, n_bins=4, max_depth=3, bootstrap=False, max_features="sqrt", orthogonality=0.5, score_weight=False, random_state=42, n_jobs=-1
+    ):
         self.n_jobs = n_jobs
         self.n_bins = n_bins
+        self.criterion = criterion
         self.max_depth = max_depth
         self.bootstrap = bootstrap
         self.max_features = max_features
@@ -404,6 +413,7 @@ class RandomForestClassifier():
         self.orthogonality = orthogonality
         self.trees = [DecisionTreeClassifier(
             n_bins = n_bins,
+            criterion = criterion,
             max_depth = max_depth,
             bootstrap = bootstrap,
             max_features = max_features,
