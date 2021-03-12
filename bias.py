@@ -406,6 +406,7 @@ class CovarianceConstraintLinearRegression:
         return("Covariance-Constraint Logistic Regression\n" + args_str)
 
 class CovarianceConstraintLogisticRegression:
+    
     """
     Covariance-Constraint Logistic Regression
     """
@@ -465,6 +466,8 @@ class CovarianceConstraintLogisticRegression:
         self.is_fit = False
     
     def fit(self, X, y, s, weights=None):
+        np.random.seed(42)
+        seed(42)
         """
         X: np.array.astype(float) shape(n,m)
         y: np.array.astype(int)   shape(n,)
@@ -473,8 +476,8 @@ class CovarianceConstraintLogisticRegression:
        
         if type(weights) == type(None):
             weights = np.ones_like(y)
-        X = np.array(X).astype(float)
-        y = np.array(y).astype(int)
+        X = np.array(X)
+        y = np.array(y)
         s = pd.get_dummies(np.array(s).astype(str))
         z = s - s.mean()
         
@@ -493,15 +496,18 @@ class CovarianceConstraintLogisticRegression:
             ) / X.shape[0]
             obj = cp.Minimize(loss)
             prob = cp.Problem(obj)
-            prob.solve(
-                abstol=1e-2,
-                reltol=1e-2,
-                feastol=1e-2,                
-                abstol_inacc=1e-2,
-                reltol_inacc=1e-2,
-                feastol_inacc=1e-2,                
-                max_iters=int(1e2)
-            )
+            try:
+                prob.solve()
+            except:
+                prob.solve(solver="SCS")
+#                 abstol=1e-1,
+#                 reltol=1e-1,
+#                 feastol=1e-1,                
+#                 abstol_inacc=1e-1,
+#                 reltol_inacc=1e-1,
+#                 feastol_inacc=1e-1,                
+#                 max_iters=int(1e2)
+#             )
             pred = X @ w.value
             for attr_value in z.columns:
                 base_covariance[attr_value] = abs(sum(pred * z[attr_value]) / X.shape[0])
@@ -537,15 +543,18 @@ class CovarianceConstraintLogisticRegression:
         
         obj = cp.Minimize(loss)
         prob = cp.Problem(obj, constraints=constraints)
-        fun_value = prob.solve(
-            abstol=1e-2,
-            reltol=1e-2,
-            feastol=1e-2,                
-            abstol_inacc=1e-2,
-            reltol_inacc=1e-2,
-            feastol_inacc=1e-2,                
-            max_iters=int(1e2)
-        )
+        try:
+            fun_value = prob.solve()
+        except:
+            fun_value = prob.solve(solver="SCS")
+#             abstol=1e-1,
+#             reltol=1e-1,
+#             feastol=1e-1,                
+#             abstol_inacc=1e-1,
+#             reltol_inacc=1e-1,
+#             feastol_inacc=1e-1,                
+#             max_iters=int(1e2)
+#         )
         self.is_fit = True
         self.coefs = w.value
         self.fun_value = fun_value
@@ -760,7 +769,7 @@ class BiasConstraintLogisticRegression():
 class BiasConstraintDecisionTreeClassifier():
     def __init__(self,
         n_bins=2, min_leaf=1, max_depth=2, n_samples=1.0, max_features="auto", bootstrap=True, random_state=42,
-        criterion="auc", bias_method="avg", compound_bias_method="avg", orthogonality=.5
+        criterion="auc_sub", bias_method="avg", compound_bias_method="avg", orthogonality=.5
     ):
         self.is_fit = False
         self.n_bins = n_bins
@@ -776,28 +785,28 @@ class BiasConstraintDecisionTreeClassifier():
         self.compound_bias_method = compound_bias_method
         
     
-        if self.criterion not in ["entropy", "auc", "faht", "ig", "fg", "kamiran_add", "kamiran_div", "kamiran_sub"]:
-            self.criterion = "auc"
-            warnings.warn("criterion undefined -> setting criterion to auc")
-        if (self.bias_method != "avg") and (self.bias_method != "w_avg") and (self.bias_method != "xtr"):
-            self.bias_method = "avg"
-            warnings.warn("bias_method undefined -> setting bias_method to avg")
-        if (self.compound_bias_method != "avg") and (self.compound_bias_method != "xtr"):
-            self.compound_bias_method = "avg"
-            warnings.warn("compound_bias_method undefined -> setting compound_bias_method to avg")
+#         if self.criterion not in ["entropy", "auc_sub", "faht", "ig", "fg", "kamiran_add", "kamiran_div", "kamiran_sub"]:
+#             self.criterion = "auc_sub"
+#             warnings.warn("criterion undefined -> setting criterion to auc")
+#         if (self.bias_method != "avg") and (self.bias_method != "w_avg") and (self.bias_method != "xtr"):
+#             self.bias_method = "avg"
+#             warnings.warn("bias_method undefined -> setting bias_method to avg")
+#         if (self.compound_bias_method != "avg") and (self.compound_bias_method != "xtr"):
+#             self.compound_bias_method = "avg"
+#             warnings.warn("compound_bias_method undefined -> setting compound_bias_method to avg")
             
-        if "int" not in str(type(self.n_bins)):
-            raise Exception("n_bins must be an int, not " + str(type(self.n_bins)))
-        if "int" not in str(type(self.min_leaf)):
-            raise Exception("min_leaf must be an int, not " + str(type(self.min_leaf)))
-        if "int" not in str(type(self.max_depth)):
-            raise Exception("max_depth must be an int, not " + str(type(self.max_depth)))
-        if ("int" not in str(type(self.n_samples))) and ("float" not in str(type(self.n_samples))):
-            raise Exception("n_samples must be an int or float, not " + str(type(self.n_samples)))
-#         if ("int" not in str(type(self.max_features))) and ("float" not in str(type(self.max_features))):
-#             raise Exception("max_features must be an int or float, not " + str(type(self.max_features)))
-        if ("int" not in str(type(self.orthogonality))) and ("float" not in str(type(self.orthogonality))):
-            raise Exception("orthogonality must be an int or float, not " + str(type(self.orthogonality)))
+#         if "int" not in str(type(self.n_bins)):
+#             raise Exception("n_bins must be an int, not " + str(type(self.n_bins)))
+#         if "int" not in str(type(self.min_leaf)):
+#             raise Exception("min_leaf must be an int, not " + str(type(self.min_leaf)))
+#         if "int" not in str(type(self.max_depth)):
+#             raise Exception("max_depth must be an int, not " + str(type(self.max_depth)))
+#         if ("int" not in str(type(self.n_samples))) and ("float" not in str(type(self.n_samples))):
+#             raise Exception("n_samples must be an int or float, not " + str(type(self.n_samples)))
+# #         if ("int" not in str(type(self.max_features))) and ("float" not in str(type(self.max_features))):
+# #             raise Exception("max_features must be an int or float, not " + str(type(self.max_features)))
+#         if ("int" not in str(type(self.orthogonality))) and ("float" not in str(type(self.orthogonality))):
+#             raise Exception("orthogonality must be an int or float, not " + str(type(self.orthogonality)))
                                 
     def fit(self, X="X", y="y", b="bias"):
         """
@@ -1027,11 +1036,15 @@ class BiasConstraintDecisionTreeClassifier():
                 
             if (len(index_left)==0) or (len(index_right)==0):
                 score = -np.inf
-            elif self.criterion == "auc":
+                
+            elif "auc" in self.criterion:
                 auc_y = get_auc_y(index_left, index_right)
                 auc_b = get_auc_b(index_left, index_right)
-                score = (1-self.orthogonality)*auc_y - self.orthogonality*auc_b
-            
+                if "sub" in self.criterion:
+                    score = (1-self.orthogonality)*auc_y - self.orthogonality*auc_b
+                elif "div" in self.criterion:
+                    score = auc_y / auc_b
+                    
             elif self.criterion == "faht":
                 
                 n = len(indexs)
@@ -1233,14 +1246,13 @@ class BiasConstraintDecisionTreeClassifier():
                 
         # return best (sscore, feature, split_value) dependant on criterion and indexs
         def get_best_split(indexs):
-            if self.criterion=="auc":
+            if self.criterion=="auc_sub":
                 base_score = (1-self.orthogonality)*0.5 - self.orthogonality*0.5
-                best_score = copy(base_score)
+            elif self.criterion=="auc_div":
+                base_score = 1
             else:
-                best_score = -np.inf
-            #best_score = -np.inf    
-            # only positive scores are desirable
-            # if negative score, then b_auc > s_auc which we don't want
+                base_score = 0 # because other methods use "gain" (they already measure the difference)
+            best_score = copy(base_score)
             candidate_splits = get_candidate_splits(indexs)
             for feature in candidate_splits:
                 for split_value in candidate_splits[feature]:
@@ -1250,10 +1262,8 @@ class BiasConstraintDecisionTreeClassifier():
                         best_score = score
                         best_feature = feature
                         best_split_value = split_value
-            if (best_score==-np.inf):
-                best_feature, best_split_value = np.nan, np.nan
-            if (self.criterion=="auc") and (best_score==base_score):
-                best_feature, best_split_value, best_score = np.nan, np.nan, -np.inf
+            if (best_score==base_score):
+                best_score, best_feature, best_split_value = -np.inf, np.nan, np.nan
             return best_score, best_feature, best_split_value
         
         # recursively grow the actual tree ---> {split1: {...}}
@@ -1279,7 +1289,7 @@ class BiasConstraintDecisionTreeClassifier():
                 if new_score==-np.inf: ## in case no more feature values exist for splitting
                     return indexs
                 
-#                 if (self.criterion=="auc") and (new_score<=0):
+#                 if (self.criterion=="auc_sub") and (new_score<=0):
 #                     return indexs
 #                 if new_score <= old_score:
 #                     return indexs
@@ -1419,7 +1429,7 @@ class BiasConstraintDecisionTreeClassifier():
 class BiasConstraintRandomForestClassifier():
     def __init__(self, n_estimators=500, n_jobs=-1,
         n_bins=2, min_leaf=1, max_depth=2, n_samples=1.0, max_features="auto", bootstrap=True, random_state=42,
-        criterion="auc", bias_method="avg", compound_bias_method="avg", orthogonality=.5
+        criterion="auc_sub", bias_method="avg", compound_bias_method="avg", orthogonality=.5
     ):
         """
         Bias Constraint Forest Classifier
@@ -1436,7 +1446,7 @@ class BiasConstraintRandomForestClassifier():
                        -> "log"/"log2": log2 of features is used
         bootstrap -> bool: bootstrap strategy (with out without replacement)
         random_state -> int: seed for all random processes
-        criterion -> str: ["entropy", "auc"] score criterion for splitting
+        criterion -> str: ["entropy", "auc_sub"] score criterion for splitting
         bias_method -> str: ["avg", "w_avg", "xtr"] OvR approach for categorical bias attribute
         compound_bias_method -> str: ["avg", "xtr"] aggregation approach for multiple bias attributes
         orthogonality -> int/float: strength of bias constraint
@@ -1457,28 +1467,28 @@ class BiasConstraintRandomForestClassifier():
         self.n_estimators = n_estimators
         self.compound_bias_method = compound_bias_method
         
-        if self.criterion not in ["entropy", "auc", "faht", "ig", "fg", "kamiran_add", "kamiran_div", "kamiran_sub"]:
-            self.criterion = "auc"
-            warnings.warn("criterion undefined -> setting criterion to auc")
-        if (self.bias_method != "avg") and (self.bias_method != "w_avg") and (self.bias_method != "xtr"):
-            self.bias_method = "avg"
-            warnings.warn("bias_method undefined -> setting bias_method to avg")
-        if (self.compound_bias_method != "avg") and (self.compound_bias_method != "xtr"):
-            self.compound_bias_method = "avg"
-            warnings.warn("compound_bias_method undefined -> setting compound_bias_method to avg")
+#         if self.criterion not in ["entropy", "auc_sub", "faht", "ig", "fg", "kamiran_add", "kamiran_div", "kamiran_sub"]:
+#             self.criterion = "auc_sub"
+#             warnings.warn("criterion undefined -> setting criterion to auc")
+#         if (self.bias_method != "avg") and (self.bias_method != "w_avg") and (self.bias_method != "xtr"):
+#             self.bias_method = "avg"
+#             warnings.warn("bias_method undefined -> setting bias_method to avg")
+#         if (self.compound_bias_method != "avg") and (self.compound_bias_method != "xtr"):
+#             self.compound_bias_method = "avg"
+#             warnings.warn("compound_bias_method undefined -> setting compound_bias_method to avg")
             
-        if "int" not in str(type(self.n_bins)):
-            raise Exception("n_bins must be an int, not " + str(type(self.n_bins)))
-        if "int" not in str(type(self.min_leaf)):
-            raise Exception("min_leaf must be an int, not " + str(type(self.min_leaf)))
-        if "int" not in str(type(self.max_depth)):
-            raise Exception("max_depth must be an int, not " + str(type(self.max_depth)))
-        if ("int" not in str(type(self.n_samples))) and ("float" not in str(type(self.n_samples))):
-            raise Exception("n_samples must be an int or float, not " + str(type(self.n_samples)))
-#         if ("int" not in str(type(self.max_features))) and ("float" not in str(type(self.max_features))):
-#             raise Exception("max_features must be an int or float, not " + str(type(self.max_features)))
-        if ("int" not in str(type(self.orthogonality))) and ("float" not in str(type(self.orthogonality))):
-            raise Exception("orthogonality must be an int or float, not " + str(type(self.orthogonality)))
+#         if "int" not in str(type(self.n_bins)):
+#             raise Exception("n_bins must be an int, not " + str(type(self.n_bins)))
+#         if "int" not in str(type(self.min_leaf)):
+#             raise Exception("min_leaf must be an int, not " + str(type(self.min_leaf)))
+#         if "int" not in str(type(self.max_depth)):
+#             raise Exception("max_depth must be an int, not " + str(type(self.max_depth)))
+#         if ("int" not in str(type(self.n_samples))) and ("float" not in str(type(self.n_samples))):
+#             raise Exception("n_samples must be an int or float, not " + str(type(self.n_samples)))
+# #         if ("int" not in str(type(self.max_features))) and ("float" not in str(type(self.max_features))):
+# #             raise Exception("max_features must be an int or float, not " + str(type(self.max_features)))
+#         if ("int" not in str(type(self.orthogonality))) and ("float" not in str(type(self.orthogonality))):
+#             raise Exception("orthogonality must be an int or float, not " + str(type(self.orthogonality)))
         
         
         # Generating BCDForest
