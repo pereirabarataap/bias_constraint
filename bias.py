@@ -1,3 +1,35 @@
+Skip to content
+Search or jump to…
+
+Pull requests
+Issues
+Marketplace
+Explore
+ 
+@pereirabarataap 
+pereirabarataap
+/
+bias_constraint
+1
+1
+0
+Code
+Issues
+Pull requests
+Actions
+Projects
+Wiki
+Security
+Insights
+Settings
+bias_constraint/bias.py /
+@pereirabarataap
+pereirabarataap Update bias.py
+Latest commit 805bb48 4 days ago
+ History
+ 1 contributor
+1850 lines (1578 sloc)  79.7 KB
+  
 import os
 
 # os.environ["MKL_NUM_THREADS"] = "1" 
@@ -932,6 +964,20 @@ class BiasConstraintDecisionTreeClassifier():
                 if len(self.b.shape)==1: #if we have only 1 bias column
                     b_unique = np.unique(self.b[indexs])
                     
+                    n_left = len(index_left)
+                    n_right = len(index_right)
+                    y_left = self.y[index_left]
+                    y_right = self.y[index_right]
+                    proba_left = sum(y_left==1)/n_left
+                    proba_right = sum(y_right==1)/n_right
+
+                    y_prob = np.concatenate(
+                        (np.repeat(proba_left, n_left), np.repeat(proba_right, n_right))
+                    )
+
+                    b_left = self.b[index_left]
+                    b_right = self.b[index_right]
+                    
                     if len(b_unique)==1: #if these indexs only contain 1 bias_value
                         auc_b = 1
                         
@@ -958,18 +1004,15 @@ class BiasConstraintDecisionTreeClassifier():
                         auc_storage = []
                         wts_storage = []
                         for b_uni in b_unique:
-                            true_pos = sum(self.b[index_left]==b_uni)
-                            false_pos = sum(self.b[index_left]!=b_uni)
-                            actual_pos = sum(self.b[indexs]==b_uni)
-                            actual_neg = sum(self.b[indexs]!=b_uni)
-                            tpr = true_pos / actual_pos
-                            fpr = false_pos / actual_neg
-                            auc_b_uni = (1 + tpr - fpr) / 2
-                            auc_b_uni = max(1 - auc_b_uni, auc_b_uni)
+                            b_true = np.concatenate(
+                                ((b_left==b_uni).astype(int), (b_right==b_uni).astype(int))
+                            )
+                            auc_b_uni = roc_auc_score(b_true, y_prob)
+                            auc_b_uni = max(1-auc_b_uni, auc_b_uni)
                             if np.isnan(auc_b_uni):
                                 auc_b_uni = 1
                             auc_storage.append(auc_b_uni)
-                            wts_storage.append(actual_pos)
+                            wts_storage.append(sum(b_true))
                         if self.bias_method=="avg":
                             auc_b = np.mean(auc_storage)
                         elif self.bias_method=="w_avg":
@@ -1447,7 +1490,7 @@ class BiasConstraintRandomForestClassifier():
         bootstrap -> bool: bootstrap strategy (with out without replacement)
         random_state -> int: seed for all random processes
         criterion -> str: ["entropy", "auc_sub"] score criterion for splitting
-        bias_method -> str: ["avg", "w_avg", "xtr"] OvR approach for categorical bias attribute
+        bias_method -> str: ["avg", "w_avg", "xtr"] OvR approach for multi-categorical bias attribute
         compound_bias_method -> str: ["avg", "xtr"] aggregation approach for multiple bias attributes
         orthogonality -> int/float: strength of bias constraint
         n_jobs -> int: CPU usage / -1 for all 
@@ -1848,3 +1891,4 @@ def run_classification(
     
     if return_output == True:
         return cov_test_measures, cov_train_measures, cov_test_covariances, cov_train_covariances
+   
