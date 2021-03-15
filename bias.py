@@ -1,35 +1,3 @@
-Skip to content
-Search or jump to…
-
-Pull requests
-Issues
-Marketplace
-Explore
- 
-@pereirabarataap 
-pereirabarataap
-/
-bias_constraint
-1
-1
-0
-Code
-Issues
-Pull requests
-Actions
-Projects
-Wiki
-Security
-Insights
-Settings
-bias_constraint/bias.py /
-@pereirabarataap
-pereirabarataap Update bias.py
-Latest commit 805bb48 4 days ago
- History
- 1 contributor
-1850 lines (1578 sloc)  79.7 KB
-  
 import os
 
 # os.environ["MKL_NUM_THREADS"] = "1" 
@@ -1891,4 +1859,3 @@ def run_classification(
     
     if return_output == True:
         return cov_test_measures, cov_train_measures, cov_test_covariances, cov_train_covariances
-   
