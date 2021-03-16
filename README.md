@@ -7,8 +7,14 @@ https://pereirabarataap.github.io/bias_constraint/index
 
 
 <code>
-  from fgboost import FGBClassifier as FGBC</br>
+  from fgboost import FGBClassifier as FGBC
+ </code>
+ <code>
   clf = FGBC()</br>
+ </code>
+ <code>
   clf.fit(X_train, y_train, s_train)</br>
+</code>
+<code>
   y_prob = clf.predict_proba(X_test)[:,1]
 </code>
