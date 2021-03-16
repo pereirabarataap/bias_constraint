@@ -68,9 +68,9 @@ class FGBClassifier():
                     elif ovr_method=="local_auc":
                         left_ovr_s_auc = []
                         for j in range(left_s.shape[1]):
-                            left_n_s_unique = len(np.unique(left_s[:, j]))
+                            left_n_s_unique = len(np.unique(s[left_idx, j]))
                             if left_n_s_unique!=1:
-                                left_s_auc = roc_auc_score(left_s[:, j], left_p)
+                                left_s_auc = roc_auc_score(s[left_idx, j], left_p)
                                 left_s_auc = max(1-left_s_auc, left_s_auc)
                             else: # if a sensitive attr value is missing from a node
                                 left_s_auc = 0 # so that the weight is also zero
@@ -78,9 +78,9 @@ class FGBClassifier():
                         left_weights = np.array(left_ovr_s_auc)
                         right_ovr_s_auc = []
                         for j in range(right_s.shape[1]):
-                            right_n_s_unique = len(np.unique(right_s[:, j]))
+                            right_n_s_unique = len(np.unique(s[right_idx, j]))
                             if right_n_s_unique!=1:
-                                right_s_auc = roc_auc_score(right_s[:, j], right_p)
+                                right_s_auc = roc_auc_score(s[right_idx, j], right_p)
                                 right_s_auc = max(1-right_s_auc, right_s_auc)
                             else: # if only 1 class is present on this leaf
                                 right_s_auc = 0 # so that the weight is also zero
@@ -155,7 +155,7 @@ class FGBClassifier():
                         -(
                             (
                                 (sum(left_weights)*theta - sum(left_weights))*left_y + \
-                                -1*np.sum(left_s*left_weights, axis=1) * theta + \
+                                -1*np.sum(left_s*left_weights, axis=1)*theta + \
                                 sum(left_weights)*left_p
                             ) / (
                                 sum(left_weights)
@@ -166,7 +166,7 @@ class FGBClassifier():
                         -(
                             (
                                 (sum(right_weights)*theta - sum(right_weights))*right_y + \
-                                -1*np.sum(right_s*right_weights, axis=1) * theta + \
+                                -1*np.sum(right_s*right_weights, axis=1)*theta + \
                                 sum(right_weights)*right_p
                             ) / (
                                 sum(right_weights)
