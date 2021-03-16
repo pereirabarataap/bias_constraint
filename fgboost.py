@@ -65,7 +65,7 @@ class FGBClassifier():
                         left_weights = np.repeat(1.0, left_s.shape[1])
                         right_weights = np.repeat(1.0, right_s.shape[1])
                         
-                    elif ovr_method=="auc":
+                    elif ovr_method=="local_auc":
                         left_ovr_s_auc = []
                         for j in range(left_s.shape[1]):
                             left_n_s_unique = len(np.unique(left_s[:, j]))
@@ -86,6 +86,19 @@ class FGBClassifier():
                                 right_s_auc = 0 # so that the weight is also zero
                             right_ovr_s_auc.append(right_s_auc)
                         right_weights = np.array(right_ovr_s_auc)
+                    
+                    elif ovr_method=="global_auc":
+                        ovr_s_auc = []
+                        for j in range(s.shape[1]):
+                            n_s_unique = len(np.unique(s[:, j]))
+                            if n_s_unique!=1:
+                                s_auc = roc_auc_score(s[:, j], p)
+                                s_auc = max(1-s_auc, s_auc)
+                            else: # if a sensitive attr value is missing from a node
+                                s_auc = 0 # so that the weight is also zero
+                            ovr_s_auc.append(s_auc)
+                        left_weights = np.array(ovr_s_auc)
+                        right_weights = np.array(ovr_s_auc)
                         
                     ######################################################################
                     left_p_increase = np.mean(
@@ -118,8 +131,6 @@ class FGBClassifier():
                     if np.isnan(right_p_increase):
                         right_p_increase=0
                     
-                    #print(left_p_increase, right_p_increase)
-                    
                     left_new_p = left_p + left_p_increase
                     right_new_p = right_p + right_p_increase
                     y_auc = roc_auc_score(
@@ -130,16 +141,16 @@ class FGBClassifier():
                     ovr_s_auc = []
                     for j in range(s.shape[1]):
                         s_auc = roc_auc_score(
-                            left_s[:, j].tolist()+right_s[:, j].tolist(),
+                            s[left_idx, j].tolist()+s[right_idx, j].tolist(),
                             left_new_p.tolist()+right_new_p.tolist()
                         )
                         s_auc = max(1-s_auc, s_auc)
                         ovr_s_auc.append(s_auc)
-                    ovr_s_auc = np.array(ovr_s_auc)
+                    
                     if ovr_method=="avg":
                         ovr_weights = np.repeat(1.0, s.shape[1])
-                    elif ovr_method=="auc":
-                        ovr_weights = ovr_s_auc
+                    elif ovr_method in ["local_auc", "global_auc"]:
+                        ovr_weights = np.array(ovr_s_auc)
                     s_auc = np.average(ovr_s_auc, weights=ovr_weights)
                     
                     score = (1-theta)*y_auc - theta*s_auc
@@ -218,7 +229,7 @@ class FGBClassifier():
                             
                         if ovr_method=="avg":
                             ovr_weights = np.repeat(1.0, s.shape[1])
-                        elif ovr_method=="auc":
+                        elif ovr_method in ["local_auc", "global_auc"]:
                             ovr_weights = np.array(ovr_s_auc)
                         
                         s_auc = round(np.average(ovr_s_auc, weights=ovr_weights), 4)
