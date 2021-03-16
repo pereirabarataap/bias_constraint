@@ -99,7 +99,57 @@ class FGBClassifier():
                             ovr_s_auc.append(s_auc)
                         left_weights = np.array(ovr_s_auc)
                         right_weights = np.array(ovr_s_auc)
+                    
+                    elif ovr_method=="local_freq":
+                        left_s_frequencies = np.sum(s[left_idx], axis=0)
+                        right_s_frequencies = np.sum(s[right_idx], axis=0)
+                        left_weights = np.array(left_s_frequencies)
+                        right_weights = np.array(right_s_frequencies)
+                    
+                    elif ovr_method=="global_freq":
+                        s_frequencies = np.sum(s, axis=0)
+                        left_weights = np.array(s_frequencies)
+                        right_weights = np.array(s_frequencies)
+                    
+                    elif ovr_method=="local_auc_freq":
+                        left_s_frequencies = np.sum(s[left_idx], axis=0)
+                        right_s_frequencies = np.sum(s[right_idx], axis=0)
+                        left_ovr_s_auc = []
+                        for j in range(left_s.shape[1]):
+                            left_n_s_unique = len(np.unique(left_s[:, j]))
+                            if left_n_s_unique!=1:
+                                left_s_auc = roc_auc_score(left_s[:, j], left_p)
+                                left_s_auc = max(1-left_s_auc, left_s_auc)
+                            else: # if a sensitive attr value is missing from a node
+                                left_s_auc = 0 # so that the weight is also zero
+                            left_ovr_s_auc.append(left_s_auc)
+                        right_ovr_s_auc = []
+                        for j in range(right_s.shape[1]):
+                            right_n_s_unique = len(np.unique(right_s[:, j]))
+                            if right_n_s_unique!=1:
+                                right_s_auc = roc_auc_score(right_s[:, j], right_p)
+                                right_s_auc = max(1-right_s_auc, right_s_auc)
+                            else: # if only 1 class is present on this leaf
+                                right_s_auc = 0 # so that the weight is also zero
+                            right_ovr_s_auc.append(right_s_auc)
+                        left_weights = np.array(left_ovr_s_auc)*left_s_frequencies
+                        right_weights = np.array(right_ovr_s_auc)*right_s_frequencies
                         
+                    elif ovr_method=="global_auc_freq":
+                        ovr_s_auc = []
+                        s_frequencies = np.sum(s, axis=0)
+                        for j in range(s.shape[1]):
+                            n_s_unique = len(np.unique(s[:, j]))
+                            if n_s_unique!=1:
+                                s_auc = roc_auc_score(s[:, j], p)
+                                s_auc = max(1-s_auc, s_auc)
+                            else: # if a sensitive attr value is missing from a node
+                                s_auc = 0 # so that the weight is also zero
+                            ovr_s_auc.append(s_auc)
+                            
+                        left_weights = np.array(ovr_s_auc)*s_frequencies
+                        right_weights = np.array(ovr_s_auc)*s_frequencies
+                    
                     ######################################################################
                     left_p_increase = np.mean(
                         -(
@@ -133,6 +183,7 @@ class FGBClassifier():
                     
                     left_new_p = left_p + left_p_increase
                     right_new_p = right_p + right_p_increase
+                    
                     y_auc = roc_auc_score(
                         left_y.tolist()+right_y.tolist(),
                         left_new_p.tolist()+right_new_p.tolist()
@@ -151,6 +202,13 @@ class FGBClassifier():
                         ovr_weights = np.repeat(1.0, s.shape[1])
                     elif ovr_method in ["local_auc", "global_auc"]:
                         ovr_weights = np.array(ovr_s_auc)
+                    elif ovr_method in ["local_freq", "global_freq"]:
+                        s_frequencies = np.sum(s, axis=0)
+                        ovr_weights = np.array(s_frequencies)
+                    elif ovr_method in ["local_auc_freq", "global_auc_freq"]:
+                        s_frequencies = np.sum(s, axis=0)
+                        ovr_weights = np.array(ovr_s_auc)*s_frequencies
+                        
                     s_auc = np.average(ovr_s_auc, weights=ovr_weights)
                     
                     score = (1-theta)*y_auc - theta*s_auc
@@ -231,8 +289,14 @@ class FGBClassifier():
                             ovr_weights = np.repeat(1.0, s.shape[1])
                         elif ovr_method in ["local_auc", "global_auc"]:
                             ovr_weights = np.array(ovr_s_auc)
-                        
+                        elif ovr_method in ["local_freq", "global_freq"]:
+                            s_frequencies = np.sum(s, axis=0)
+                            ovr_weights = np.array(s_frequencies)
+                        elif ovr_method in ["local_auc_freq", "global_auc_freq"]:
+                            s_frequencies = np.sum(s, axis=0)
+                            ovr_weights = np.array(ovr_s_auc)*s_frequencies
                         s_auc = round(np.average(ovr_s_auc, weights=ovr_weights), 4)
+                        
                         print_line = "y_AUC=" + str(y_auc) + "\ts_AUC=" + str(s_auc)
                         for j in range(s.shape[1]):
                             print_line += "\ts"+str(j+1)+"_AUC=" + str(round(ovr_s_auc[j], 4))
