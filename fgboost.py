@@ -131,25 +131,26 @@ class FGBClassifier():
         trees = []
         best_score=0
         while best_score!=-np.inf:
-            for i in tqdm_n(range(n_trees)):
-                results = Parallel(n_jobs=-1)(
-                    delayed(find_best_split_parallel)(
-                        batch, X, y, s, p, idx, theta, learning_rate
-                    ) for batch in batches
-                )
-                best_left_p_increase, best_left_idx, best_right_p_increase, best_right_idx, best_split, best_score = sorted(
-                    results, key=lambda x: x[-1]
-                )[-1]
-                if best_score!=-np.inf:
-                    tree = {
-                        "split": best_split,
-                        0: best_left_p_increase,
-                        1: best_right_p_increase,
-                    }
-                    trees.append(tree)
-                    p[best_left_idx] = p[best_left_idx] + best_left_p_increase
-                    p[best_right_idx] = p[best_right_idx] + best_right_p_increase
-                    if verbose:
+            if verbose:
+                for i in tqdm_n(range(n_trees)):
+                    results = Parallel(n_jobs=-1)(
+                        delayed(find_best_split_parallel)(
+                            batch, X, y, s, p, idx, theta, learning_rate
+                        ) for batch in batches
+                    )
+                    best_left_p_increase, best_left_idx, best_right_p_increase, best_right_idx, best_split, best_score = sorted(
+                        results, key=lambda x: x[-1]
+                    )[-1]
+                    if best_score!=-np.inf:
+                        tree = {
+                            "split": best_split,
+                            0: best_left_p_increase,
+                            1: best_right_p_increase,
+                        }
+                        trees.append(tree)
+                        p[best_left_idx] = p[best_left_idx] + best_left_p_increase
+                        p[best_right_idx] = p[best_right_idx] + best_right_p_increase
+
                         y_auc = round(roc_auc_score(
                             y[best_left_idx].tolist()+y[best_right_idx].tolist(),
                             p[best_left_idx].tolist()+p[best_right_idx].tolist(),
@@ -171,8 +172,29 @@ class FGBClassifier():
                             print_line += "\ts"+str(j+1)+"_AUC = " + str(round(ovr_s_auc[j], 4))
                         sys.stdout.write("\r" + str(print_line)+"\t")
                         sys.stdout.flush()
-                else:
-                    break
+                    else:
+                        break
+            else:
+                for i in range(n_trees):
+                    results = Parallel(n_jobs=-1)(
+                        delayed(find_best_split_parallel)(
+                            batch, X, y, s, p, idx, theta, learning_rate
+                        ) for batch in batches
+                    )
+                    best_left_p_increase, best_left_idx, best_right_p_increase, best_right_idx, best_split, best_score = sorted(
+                        results, key=lambda x: x[-1]
+                    )[-1]
+                    if best_score!=-np.inf:
+                        tree = {
+                            "split": best_split,
+                            0: best_left_p_increase,
+                            1: best_right_p_increase,
+                        }
+                        trees.append(tree)
+                        p[best_left_idx] = p[best_left_idx] + best_left_p_increase
+                        p[best_right_idx] = p[best_right_idx] + best_right_p_increase
+                    else:
+                        break
             best_score=-np.inf
 
         self.trees = trees
