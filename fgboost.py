@@ -340,7 +340,7 @@ class FGBClassifier():
                 for i in range(n_estimators):
                     results = Parallel(n_jobs=-1)(
                         delayed(find_best_split_parallel)(
-                            batch, X, y, s, p, idx, theta, learning_rate, ovr_method
+                            batch, X, y, s, p, idx, theta, learning_rate, ovr_method, base_method
                         ) for batch in batches
                     )
                     best_left_p_increase, best_left_idx, best_right_p_increase, best_right_idx, best_split, best_score = sorted(
