@@ -18,7 +18,7 @@ class FGBClassifier():
     # multiple sens-attr
     ####################
     
-    def __init__(self, n_estimators=10, learning_rate=1e-2, theta=0.5, verbose=True):
+    def __init__(self, n_estimators=100, learning_rate=1e-1, theta=0.5, verbose=True):
         self.theta = theta
         self.verbose = verbose
         self.n_estimators = n_estimators
