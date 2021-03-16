@@ -14,7 +14,7 @@ class FGBClassifier():
     # bootstrap
     # max_depth
     # max_features
-    # different wght OvR
+    # inv weight OvR
     # multiple sens-attr
     ####################
     
