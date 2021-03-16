@@ -18,7 +18,7 @@ class FGBClassifier():
     # multiple sens-attr
     ####################
     
-    def __init__(self, n_estimators=100, learning_rate=1e-1, theta=0.5, ovr_method="avg", verbose=True):
+    def __init__(self, n_estimators=100, learning_rate=1e-1, theta=0.5, ovr_method="avg", base_method="current", verbose=True):
         self.theta = theta
         self.verbose = verbose
         self.ovr_method = ovr_method
@@ -35,11 +35,38 @@ class FGBClassifier():
             for ndx in range(0, l, n):
                 yield iterable[ndx:min(ndx + n, l)]
 
-        def find_best_split_parallel(batch, X, y, s, p, idx, theta, learning_rate, ovr_method):
-            base_score = 0.5 - 1.5*theta
-            # base score is the worst case scenario:
-            # [(1-theta)*y_auc - theta*s_auc]
-            # when y_auc=0.5, s_auc=1.0
+        def find_best_split_parallel(batch, X, y, s, p, idx, theta, learning_rate, ovr_method, base_method):
+            if base_method=="current":
+                # base score is the current score
+                y_auc = roc_auc_score(y, p)
+                ovr_s_auc = []
+                for j in range(s.shape[1]):
+                    s_auc = roc_auc_score(s[:, j], p)
+                    s_auc = max(1-s_auc, s_auc)
+                    ovr_s_auc.append(s_auc)
+                if ovr_method=="avg":
+                    ovr_weights = np.repeat(1.0, s.shape[1])
+                elif ovr_method in ["local_auc", "global_auc"]:
+                    ovr_weights = np.array(ovr_s_auc)
+                elif ovr_method in ["local_freq", "global_freq"]:
+                    s_frequencies = np.sum(s, axis=0)
+                    ovr_weights = np.array(s_frequencies)
+                elif ovr_method in ["local_auc_freq", "global_auc_freq"]:
+                    s_frequencies = np.sum(s, axis=0)
+                    ovr_weights = np.array(ovr_s_auc)*s_frequencies
+                s_auc = np.average(ovr_s_auc, weights=ovr_weights)
+                base_score = (1-theta)*y_auc - theta*s_auc
+            elif base_method=="uninformed":
+                # base score of uninformed classifier:
+                # [(1-theta)*y_auc - theta*s_auc]
+                # y_auc=0.5, s_auc=0.5
+                base_score = 0.5 - theta
+            elif base_method=="worst":
+                # base score is the worst case scenario:
+                # [(1-theta)*y_auc - theta*s_auc]
+                # when y_auc=0.5, s_auc=1.0
+                base_score = 0.5 - 1.5*theta
+            
             best_score = copy(base_score)    
             for split in batch:
                 variable, value = split
@@ -232,10 +259,11 @@ class FGBClassifier():
                 best_left_p_increase = np.nan
                 best_right_p_increase = np.nan
             return best_left_p_increase, best_left_idx, best_right_p_increase, best_right_idx, best_split, best_score
-
+        
         theta = self.theta
         verbose = self.verbose
         ovr_method = self.ovr_method
+        base_method = self.base_method
         n_estimators = self.n_estimators
         learning_rate = self.learning_rate
 
@@ -258,7 +286,7 @@ class FGBClassifier():
                 for i in tqdm_n(range(n_estimators)):
                     results = Parallel(n_jobs=-1)(
                         delayed(find_best_split_parallel)(
-                            batch, X, y, s, p, idx, theta, learning_rate, ovr_method
+                            batch, X, y, s, p, idx, theta, learning_rate, ovr_method, base_method
                         ) for batch in batches
                     )
                     best_left_p_increase, best_left_idx, best_right_p_increase, best_right_idx, best_split, best_score = sorted(
