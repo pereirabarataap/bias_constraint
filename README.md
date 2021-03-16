@@ -9,12 +9,16 @@ https://pereirabarataap.github.io/bias_constraint/index
 <code>
   from fgboost import FGBClassifier as FGBC
  </code>
+ </br>
  <code>
   clf = FGBC()</br>
  </code>
+ </br>
  <code>
   clf.fit(X_train, y_train, s_train)</br>
 </code>
+</br>
 <code>
   y_prob = clf.predict_proba(X_test)[:,1]
 </code>
+</br>
