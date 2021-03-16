@@ -14,16 +14,17 @@ class FGBClassifier():
     # bootstrap
     # max_depth
     # max_features
-    # weighted OvR
+    # different wght OvR
     # multiple sens-attr
     ####################
     
-    def __init__(self, n_estimators=100, learning_rate=1e-1, theta=0.5, verbose=True):
+    def __init__(self, n_estimators=100, learning_rate=1e-1, theta=0.5, ovr_method="avg", verbose=True):
         self.theta = theta
         self.verbose = verbose
+        self.ovr_method = ovr_method
         self.n_estimators = n_estimators
         self.learning_rate = learning_rate
-
+        
     def fit(self, X, y, s):
 
         def get_batches(iterable, n_jobs=-1):
@@ -34,10 +35,9 @@ class FGBClassifier():
             for ndx in range(0, l, n):
                 yield iterable[ndx:min(ndx + n, l)]
 
-        def find_best_split_parallel(batch, X, y, s, p, idx, theta, learning_rate):
+        def find_best_split_parallel(batch, X, y, s, p, idx, theta, learning_rate, ovr_method):
             base_score = 0.5 - theta
-            best_score = copy(base_score)
-            ovr_weights = np.repeat(1.0, s.shape[1])
+            best_score = copy(base_score)    
             for split in batch:
                 variable, value = split
                 left_idx = idx[X[idx, variable]<value]
@@ -60,40 +60,88 @@ class FGBClassifier():
                         ])
                         if right_swap_s:
                             right_s[:,j] = 1-right_s[:,j]
+                            
+                    if ovr_method=="avg":
+                        left_weights = np.repeat(1.0, left_s.shape[1])
+                        right_weights = np.repeat(1.0, right_s.shape[1])
+                        
+                    elif ovr_method=="auc":
+                        left_ovr_s_auc = []
+                        for j in range(left_s.shape[1]):
+                            left_n_s_unique = len(np.unique(left_s[:, j]))
+                            if left_n_s_unique!=1:
+                                left_s_auc = roc_auc_score(left_s[:, j], left_p)
+                                left_s_auc = max(1-left_s_auc, left_s_auc)
+                            else: # if a sensitive attr value is missing from a node
+                                left_s_auc = 0 # so that the weight is also zero
+                            left_ovr_s_auc.append(left_s_auc)
+                        left_weights = np.array(left_ovr_s_auc)
+                        right_ovr_s_auc = []
+                        for j in range(right_s.shape[1]):
+                            right_n_s_unique = len(np.unique(right_s[:, j]))
+                            if right_n_s_unique!=1:
+                                right_s_auc = roc_auc_score(right_s[:, j], right_p)
+                                right_s_auc = max(1-right_s_auc, right_s_auc)
+                            else: # if only 1 class is present on this leaf
+                                right_s_auc = 0 # so that the weight is also zero
+                            right_ovr_s_auc.append(right_s_auc)
+                        right_weights = np.array(right_ovr_s_auc)
+                        
+                    ######################################################################
                     left_p_increase = np.mean(
                         -(
                             (
-                                (left_s.shape[1]*theta - left_s.shape[1])*left_y + \
-                                -1*np.sum(left_s, axis=1) * theta + \
-                                left_s.shape[1] * left_p
+                                (sum(left_weights)*theta - sum(left_weights))*left_y + \
+                                -1*np.sum(left_s*left_weights, axis=1) * theta + \
+                                sum(left_weights)*left_p
                             ) / (
-                                left_s.shape[1]
+                                sum(left_weights)
                             )
                         )
                     )*learning_rate
                     right_p_increase = np.mean(
                         -(
                             (
-                                (right_s.shape[1]*theta - right_s.shape[1])*right_y + \
-                                -1*np.sum(right_s, axis=1) * theta + \
-                                right_s.shape[1] * right_p
+                                (sum(right_weights)*theta - sum(right_weights))*right_y + \
+                                -1*np.sum(right_s*right_weights, axis=1) * theta + \
+                                sum(right_weights)*right_p
                             ) / (
-                                right_s.shape[1]
+                                sum(right_weights)
                             )
                         )
                     )*learning_rate
+                    ######################################################################
+                    
+                    # failsafe for when sum(weights)=0, which causes a division by 0
+                    if np.isnan(left_p_increase):
+                        left_p_increase=0
+                    if np.isnan(right_p_increase):
+                        right_p_increase=0
+                    
+                    #print(left_p_increase, right_p_increase)
+                    
                     left_new_p = left_p + left_p_increase
                     right_new_p = right_p + right_p_increase
-                    y_auc = roc_auc_score(y[left_idx].tolist() + y[right_idx].tolist(), left_new_p.tolist()+right_new_p.tolist())
+                    y_auc = roc_auc_score(
+                        left_y.tolist()+right_y.tolist(),
+                        left_new_p.tolist()+right_new_p.tolist()
+                    )
+                    
                     ovr_s_auc = []
                     for j in range(s.shape[1]):
                         s_auc = roc_auc_score(
-                            s[left_idx, j].tolist()+s[right_idx, j].tolist(),
+                            left_s[:, j].tolist()+right_s[:, j].tolist(),
                             left_new_p.tolist()+right_new_p.tolist()
                         )
                         s_auc = max(1-s_auc, s_auc)
                         ovr_s_auc.append(s_auc)
+                    ovr_s_auc = np.array(ovr_s_auc)
+                    if ovr_method=="avg":
+                        ovr_weights = np.repeat(1.0, s.shape[1])
+                    elif ovr_method=="auc":
+                        ovr_weights = ovr_s_auc
                     s_auc = np.average(ovr_s_auc, weights=ovr_weights)
+                    
                     score = (1-theta)*y_auc - theta*s_auc
                     if score > best_score:
                         best_split = split
@@ -115,7 +163,8 @@ class FGBClassifier():
 
         theta = self.theta
         verbose = self.verbose
-        n_trees = self.n_estimators
+        ovr_method = self.ovr_method
+        n_estimators = self.n_estimators
         learning_rate = self.learning_rate
 
         n, m = X.shape
@@ -134,10 +183,10 @@ class FGBClassifier():
         best_score=0
         while best_score!=-np.inf:
             if verbose:
-                for i in tqdm_n(range(n_trees)):
+                for i in tqdm_n(range(n_estimators)):
                     results = Parallel(n_jobs=-1)(
                         delayed(find_best_split_parallel)(
-                            batch, X, y, s, p, idx, theta, learning_rate
+                            batch, X, y, s, p, idx, theta, learning_rate, ovr_method
                         ) for batch in batches
                     )
                     best_left_p_increase, best_left_idx, best_right_p_increase, best_right_idx, best_split, best_score = sorted(
@@ -166,21 +215,25 @@ class FGBClassifier():
                             )
                             s_auc = max(1-s_auc, s_auc)
                             ovr_s_auc.append(s_auc)
-
-                        ovr_weights = np.repeat(1.0, s.shape[1])
+                            
+                        if ovr_method=="avg":
+                            ovr_weights = np.repeat(1.0, s.shape[1])
+                        elif ovr_method=="auc":
+                            ovr_weights = np.array(ovr_s_auc)
+                        
                         s_auc = round(np.average(ovr_s_auc, weights=ovr_weights), 4)
-                        print_line = "y_AUC = " + str(y_auc) + "\ts_AUC = " + str(s_auc)
+                        print_line = "y_AUC=" + str(y_auc) + "\ts_AUC=" + str(s_auc)
                         for j in range(s.shape[1]):
-                            print_line += "\ts"+str(j+1)+"_AUC = " + str(round(ovr_s_auc[j], 4))
+                            print_line += "\ts"+str(j+1)+"_AUC=" + str(round(ovr_s_auc[j], 4))
                         sys.stdout.write("\r" + str(print_line)+"\t")
                         sys.stdout.flush()
                     else:
                         break
             else:
-                for i in range(n_trees):
+                for i in range(n_estimators):
                     results = Parallel(n_jobs=-1)(
                         delayed(find_best_split_parallel)(
-                            batch, X, y, s, p, idx, theta, learning_rate
+                            batch, X, y, s, p, idx, theta, learning_rate, ovr_method
                         ) for batch in batches
                     )
                     best_left_p_increase, best_left_idx, best_right_p_increase, best_right_idx, best_split, best_score = sorted(
