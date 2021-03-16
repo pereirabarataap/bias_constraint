@@ -36,7 +36,10 @@ class FGBClassifier():
                 yield iterable[ndx:min(ndx + n, l)]
 
         def find_best_split_parallel(batch, X, y, s, p, idx, theta, learning_rate, ovr_method):
-            base_score = 0.5 - theta
+            base_score = 0.5 - 1.5*theta
+            # base score is the worst case scenario:
+            # [(1-theta)*y_auc - theta*s_auc]
+            # when y_auc=0.5, s_auc=1.0
             best_score = copy(base_score)    
             for split in batch:
                 variable, value = split
