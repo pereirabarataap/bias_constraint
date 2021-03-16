@@ -22,6 +22,7 @@ class FGBClassifier():
         self.theta = theta
         self.verbose = verbose
         self.ovr_method = ovr_method
+        self.base_method = base_method
         self.n_estimators = n_estimators
         self.learning_rate = learning_rate
         
