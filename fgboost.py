@@ -9,12 +9,14 @@ from sklearn.metrics import roc_auc_score, log_loss
 
 class FGBClassifier():
     
-    ##############
+    ####################
     # TODO:
     # bootstrap
     # max_depth
     # max_features
-    ##############
+    # weighted OvR
+    # multiple sens-attr
+    ####################
     
     def __init__(self, n_estimators=10, learning_rate=1e-2, theta=0.5, verbose=True):
         self.theta = theta
