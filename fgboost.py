@@ -223,7 +223,7 @@ class FGBClassifier():
                                     theta*np.sum(left_weights*4) - theta + 1
                                 )
                             )
-                        )
+                        )*learning_rate
                         
                         right_p_increase = np.mean(
                             -(
@@ -238,8 +238,39 @@ class FGBClassifier():
                                     theta*np.sum(right_weights*4) - theta + 1
                                 )
                             )
-                        )
+                        )*learning_rate
                         
+                    elif loss=="hybrid":
+                        if theta==0: # normal log_loss approach
+                            left_p_increase = np.mean(left_y - left_p)*learning_rate
+                            right_p_increase = np.mean(right_y - right_p)*learning_rate
+                            
+                        else:
+                            # our p is actually z but the variable name is the same
+                            left_p_increase = np.mean(
+                                np.log(
+                                    (
+                                        2 * theta * sum(left_weights) + left_y * (1 - theta)
+                                    ) / (
+                                        2 * theta * (np.e**left_p) * sum(left_weights) + \
+                                        theta * (np.e**left_p) * (left_y-1) + \
+                                        (np.e**left_p) * (1-left_y)
+                                    )
+                                )
+                            )*learning_rate
+                            
+                            right_p_increase = np.mean(
+                                np.log(
+                                    (
+                                        2 * theta * sum(right_weights) + right_y * (1 - theta)
+                                    ) / (
+                                        2 * theta * (np.e**right_p) * sum(right_weights) + \
+                                        theta * (np.e**right_p) * (right_y-1) + \
+                                        (np.e**right_p) * (1-right_y)
+                                    )
+                                )
+                            )*learning_rate
+                            
                     # failsafe for when sum(weights)=0, which causes a division by 0
                     if np.isnan(left_p_increase):
                         left_p_increase=0
@@ -306,7 +337,10 @@ class FGBClassifier():
         learning_rate = self.learning_rate
 
         n, m = X.shape
-        p = np.repeat(0.5, n)
+        if loss=="hybrid" and (self.theta!=0):
+            p = np.repeat(0.0, n)
+        else:
+            p = np.repeat(0.5, n)
         idx = np.array(range(n))
         s = pd.get_dummies(s).values if (len(s.shape)==1) else s
 
@@ -399,7 +433,10 @@ class FGBClassifier():
         self.trees = trees
     
     def predict_proba(self, X):
-        p = np.repeat(0.5, X.shape[0])
+        if self.loss=="hybrid" and (self.theta!=0):
+            p = np.repeat(0.0, X.shape[0])
+        else:
+            p = np.repeat(0.5, X.shape[0])
         idx = np.array(range(X.shape[0]))
         for tree in self.trees:
             feature, value = tree["split"]
@@ -412,5 +449,7 @@ class FGBClassifier():
             p[left_idx] = p[left_idx] + left_p_increase
             p[right_idx] = p[right_idx] + right_p_increase
         
+        if self.loss=="hybrid" and (self.theta!=0):
+            p = (np.e**p) / (1 + np.e**p)
         proba = p.reshape(-1,1)
         return np.concatenate((1-proba, proba), axis=1)
