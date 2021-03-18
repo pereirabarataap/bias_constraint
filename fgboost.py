@@ -18,8 +18,10 @@ class FGBClassifier():
     # multiple sens-attr
     ####################
     
-    def __init__(self, n_estimators=100, learning_rate=1e-1, theta=0.5, ovr_method="avg", base_method="current", verbose=True):
+    def __init__(self, n_estimators=100, learning_rate=1e-1, theta=0.5, ovr_method="avg", base_method="current", loss="logistic", n_jobs=-1, verbose=True):
+        self.loss = loss
         self.theta = theta
+        self.n_jobs = n_jobs
         self.verbose = verbose
         self.ovr_method = ovr_method
         self.base_method = base_method
@@ -36,7 +38,7 @@ class FGBClassifier():
             for ndx in range(0, l, n):
                 yield iterable[ndx:min(ndx + n, l)]
 
-        def find_best_split_parallel(batch, X, y, s, p, idx, theta, learning_rate, ovr_method, base_method):
+        def find_best_split_parallel(batch, X, y, s, p, idx, theta, learning_rate, ovr_method, base_method, loss):
             if base_method=="current":
                 # base score is the current score
                 y_auc = roc_auc_score(y, p)
@@ -78,20 +80,7 @@ class FGBClassifier():
                     left_y, right_y = y[left_idx], y[right_idx]
                     left_s, right_s = s[left_idx], s[right_idx]
                     left_p, right_p = p[left_idx], p[right_idx]
-                    for j in range(s.shape[1]):
-                        left_swap_s = np.argmax([
-                            log_loss(left_s[:,j], left_p, labels=[0,1]), 
-                            log_loss(1-left_s[:,j], left_p, labels=[0,1]), 
-                        ])
-                        if left_swap_s:
-                            left_s[:,j] = 1-left_s[:,j]
-                        right_swap_s = np.argmax([
-                            log_loss(right_s[:,j], right_p, labels=[0,1]), 
-                            log_loss(1-right_s[:,j], right_p, labels=[0,1]), 
-                        ])
-                        if right_swap_s:
-                            right_s[:,j] = 1-right_s[:,j]
-                            
+                    
                     if ovr_method=="avg":
                         left_weights = np.repeat(1.0, left_s.shape[1])
                         right_weights = np.repeat(1.0, right_s.shape[1])
@@ -180,32 +169,77 @@ class FGBClassifier():
                             
                         left_weights = np.array(ovr_s_auc)*s_frequencies
                         right_weights = np.array(ovr_s_auc)*s_frequencies
+                
+                    if loss=="logistic":
+                        for j in range(s.shape[1]):
+                            left_swap_s = np.argmax([
+                                log_loss(left_s[:,j], left_p, labels=[0,1]), 
+                                log_loss(1-left_s[:,j], left_p, labels=[0,1]), 
+                            ])
+                            if left_swap_s:
+                                left_s[:,j] = 1-left_s[:,j]
+                            right_swap_s = np.argmax([
+                                log_loss(right_s[:,j], right_p, labels=[0,1]), 
+                                log_loss(1-right_s[:,j], right_p, labels=[0,1]), 
+                            ])
+                            if right_swap_s:
+                                right_s[:,j] = 1-right_s[:,j]
+
+                        left_p_increase = np.mean(
+                            -(
+                                (
+                                    (sum(left_weights)*theta - sum(left_weights))*left_y + \
+                                    -1*np.sum(left_s*left_weights, axis=1)*theta + \
+                                    sum(left_weights)*left_p
+                                ) / (
+                                    sum(left_weights)
+                                )
+                            )
+                        )*learning_rate
+                        right_p_increase = np.mean(
+                            -(
+                                (
+                                    (sum(right_weights)*theta - sum(right_weights))*right_y + \
+                                    -1*np.sum(right_s*right_weights, axis=1)*theta + \
+                                    sum(right_weights)*right_p
+                                ) / (
+                                    sum(right_weights)
+                                )
+                            )
+                        )*learning_rate
                     
-                    ######################################################################
-                    left_p_increase = np.mean(
-                        -(
-                            (
-                                (sum(left_weights)*theta - sum(left_weights))*left_y + \
-                                -1*np.sum(left_s*left_weights, axis=1)*theta + \
-                                sum(left_weights)*left_p
-                            ) / (
-                                sum(left_weights)
+                    elif loss=="squared_error":
+                        
+                        left_p_increase = np.mean(
+                            -(
+                                (
+                                    (theta-1)*left_y + \
+                                    theta*np.sum(
+                                        (
+                                            (4*np.repeat(left_p, len(left_weights)).reshape(len(left_p), len(left_weights)) - 2)*left_weights
+                                        ), axis=1
+                                    ) - left_p*theta + left_p
+                                ) / (
+                                    theta*np.sum(left_weights*4) - theta + 1
+                                )
                             )
                         )
-                    )*learning_rate
-                    right_p_increase = np.mean(
-                        -(
-                            (
-                                (sum(right_weights)*theta - sum(right_weights))*right_y + \
-                                -1*np.sum(right_s*right_weights, axis=1)*theta + \
-                                sum(right_weights)*right_p
-                            ) / (
-                                sum(right_weights)
+                        
+                        right_p_increase = np.mean(
+                            -(
+                                (
+                                    (theta-1)*right_y + \
+                                    theta*np.sum(
+                                        (
+                                            (4*np.repeat(right_p, len(right_weights)).reshape(len(right_p), len(right_weights)) - 2)*right_weights
+                                        ), axis=1
+                                    ) - right_p*theta + right_p
+                                ) / (
+                                    theta*np.sum(right_weights*4) - theta + 1
+                                )
                             )
                         )
-                    )*learning_rate
-                    ######################################################################
-                    
+                        
                     # failsafe for when sum(weights)=0, which causes a division by 0
                     if np.isnan(left_p_increase):
                         left_p_increase=0
@@ -252,6 +286,7 @@ class FGBClassifier():
                         best_right_idx = right_idx
                         best_left_p_increase = left_p_increase
                         best_right_p_increase = right_p_increase
+                        
             if best_score==base_score:
                 best_split = np.nan
                 best_score = -np.inf
@@ -261,7 +296,9 @@ class FGBClassifier():
                 best_right_p_increase = np.nan
             return best_left_p_increase, best_left_idx, best_right_p_increase, best_right_idx, best_split, best_score
         
+        loss = self.loss
         theta = self.theta
+        n_jobs = self.n_jobs
         verbose = self.verbose
         ovr_method = self.ovr_method
         base_method = self.base_method
@@ -278,16 +315,16 @@ class FGBClassifier():
             for variable in range(m)
                 for i in range(len(np.unique(X[idx, variable])))
         ]
-        batches = list(get_batches(splits))
+        batches = list(get_batches(splits, n_jobs=n_jobs))
 
         trees = []
         best_score=0
         while best_score!=-np.inf:
             if verbose:
                 for i in tqdm_n(range(n_estimators)):
-                    results = Parallel(n_jobs=-1)(
+                    results = Parallel(n_jobs=n_jobs)(
                         delayed(find_best_split_parallel)(
-                            batch, X, y, s, p, idx, theta, learning_rate, ovr_method, base_method
+                            batch, X, y, s, p, idx, theta, learning_rate, ovr_method, base_method, loss
                         ) for batch in batches
                     )
                     best_left_p_increase, best_left_idx, best_right_p_increase, best_right_idx, best_split, best_score = sorted(
@@ -338,9 +375,9 @@ class FGBClassifier():
                         break
             else:
                 for i in range(n_estimators):
-                    results = Parallel(n_jobs=-1)(
+                    results = Parallel(n_jobs=n_jobs)(
                         delayed(find_best_split_parallel)(
-                            batch, X, y, s, p, idx, theta, learning_rate, ovr_method, base_method
+                            batch, X, y, s, p, idx, theta, learning_rate, ovr_method, base_method, loss
                         ) for batch in batches
                     )
                     best_left_p_increase, best_left_idx, best_right_p_increase, best_right_idx, best_split, best_score = sorted(
