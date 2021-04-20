@@ -1,8 +1,8 @@
 import os
 
-# os.environ["MKL_NUM_THREADS"] = "1" 
-# os.environ["NUMEXPR_NUM_THREADS"] = "1" 
-# os.environ["OMP_NUM_THREADS"] = "1" 
+os.environ["MKL_NUM_THREADS"] = "1" 
+os.environ["NUMEXPR_NUM_THREADS"] = "1" 
+os.environ["OMP_NUM_THREADS"] = "1" 
 
 import dccp
 import random
@@ -32,9 +32,9 @@ from sklearn.preprocessing import PolynomialFeatures as PF
 from sklearn.metrics import mean_squared_error, roc_auc_score
 from sklearn.preprocessing import StandardScaler as SS, RobustScaler as RS
 
-# os.environ["MKL_NUM_THREADS"] = "1" 
-# os.environ["NUMEXPR_NUM_THREADS"] = "1" 
-# os.environ["OMP_NUM_THREADS"] = "1" 
+os.environ["MKL_NUM_THREADS"] = "1" 
+os.environ["NUMEXPR_NUM_THREADS"] = "1" 
+os.environ["OMP_NUM_THREADS"] = "1" 
 
 class DensityRatioEstimator:
     """
@@ -1859,3 +1859,4 @@ def run_classification(
     
     if return_output == True:
         return cov_test_measures, cov_train_measures, cov_test_covariances, cov_train_covariances
+   
