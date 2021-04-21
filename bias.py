@@ -4,27 +4,22 @@ os.environ["MKL_NUM_THREADS"] = "1"
 os.environ["NUMEXPR_NUM_THREADS"] = "1" 
 os.environ["OMP_NUM_THREADS"] = "1" 
 
-import dccp
 import random
 import pprint
 import warnings
-import operator
-import functools
 import cvxpy as cp
 import numpy as np
 import pandas as pd
 import seaborn as sb
-from tqdm import tqdm
+from tqdm.auto import tqdm
 from math import ceil
 import multiprocessing
 from random import seed
 import matplotlib.pyplot as plt
-from dccp.problem import is_dccp
 from copy import deepcopy as copy
 from scipy.optimize import minimize
 from joblib import delayed, Parallel
 from scipy.stats import mode, entropy
-from tqdm.notebook import tqdm as tqdm_n
 from scipy.special import expit as sigmoid
 from collections import Counter, defaultdict
 from sklearn.model_selection import GroupKFold as GKF
@@ -1441,7 +1436,7 @@ class BiasConstraintRandomForestClassifier():
     def __init__(self, n_estimators=500, n_jobs=-1,
         n_bins=2, min_leaf=1, max_depth=2, n_samples=1.0, max_features="auto", bootstrap=True, random_state=42,
         criterion="auc_sub", bias_method="avg", compound_bias_method="avg", orthogonality=.5
-    ):
+        ):
         """
         Bias Constraint Forest Classifier
         n_estimators -> int: BCDTress to generate
@@ -1521,7 +1516,7 @@ class BiasConstraintRandomForestClassifier():
         ]
         self.trees = dts
         
-    def fit(self, X, y, s):
+    def fit(self, X, y, s, verbose=False):
       
         def batch(iterable, n_jobs=1):
             if n_jobs==-1:
@@ -1534,7 +1529,7 @@ class BiasConstraintRandomForestClassifier():
         def fit_trees_parallel(i, dt_batches, X, y, s):
             dt_batch = dt_batches[i]
             fit_dt_batch = []
-            for dt in tqdm(dt_batch, desc=str(i)):
+            for dt in tqdm(dt_batch, desc=str(i), disable=not verbose):
                 dt.fit(X, y, s)
                 fit_dt_batch.append(dt)
             return fit_dt_batch
@@ -1627,7 +1622,7 @@ def run_regression(
     cov_train_measures = []
     cov_test_covariances = []
     cov_train_covariances = []
-    for cov_coef in tqdm_n(cov_coefs):
+    for cov_coef in tqdm(cov_coefs):
         test_measures = []
         train_measures = []
         test_covariances = []
@@ -1742,7 +1737,7 @@ def run_classification(
     cov_train_measures = []
     cov_test_covariances = []
     cov_train_covariances = []
-    for cov_coef in tqdm_n(cov_coefs):
+    for cov_coef in tqdm(cov_coefs):
         test_measures = []
         train_measures = []
         test_covariances = []
