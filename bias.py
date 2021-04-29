@@ -1,14 +1,770 @@
+import os
+
+os.environ["MKL_NUM_THREADS"] = "1" 
+os.environ["NUMEXPR_NUM_THREADS"] = "1" 
+os.environ["OMP_NUM_THREADS"] = "1" 
+
+import dccp
+import random
+import pprint
 import warnings
+import operator
+import functools
+import cvxpy as cp
 import numpy as np
 import pandas as pd
+import seaborn as sb
+from tqdm import tqdm
 from math import ceil
 import multiprocessing
-from tqdm.auto import tqdm
+from random import seed
+import matplotlib.pyplot as plt
+from dccp.problem import is_dccp
 from copy import deepcopy as copy
+from scipy.optimize import minimize
 from joblib import delayed, Parallel
 from scipy.stats import mode, entropy
-from sklearn.metrics import roc_auc_score
+from tqdm.notebook import tqdm as tqdm_n
+from scipy.special import expit as sigmoid
+from collections import Counter, defaultdict
+from sklearn.model_selection import GroupKFold as GKF
+from sklearn.preprocessing import PolynomialFeatures as PF
+from sklearn.metrics import mean_squared_error, roc_auc_score
+from sklearn.preprocessing import StandardScaler as SS, RobustScaler as RS
 
+os.environ["MKL_NUM_THREADS"] = "1" 
+os.environ["NUMEXPR_NUM_THREADS"] = "1" 
+os.environ["OMP_NUM_THREADS"] = "1" 
+
+class DensityRatioEstimator:
+    """
+    Class to accomplish direct density estimation implementing the original KLIEP 
+    algorithm from Direct Importance Estimation with Model Selection
+    and Its Application to Covariate Shift Adaptation by Sugiyama et al. 
+    
+    The training set is distributed via 
+                                            train ~ p(x)
+    and the test set is distributed via 
+                                            test ~ q(x).
+                                            
+    The KLIEP algorithm and its variants approximate w(x) = q(x) / p(x) directly. The predict function returns the
+    estimate of w(x). The function w(x) can serve as sample weights for the training set during
+    training to modify the expectation function that the model's loss function is optimized via,
+    i.e.
+    
+            E_{x ~ w(x)p(x)} loss(x) = E_{x ~ q(x)} loss(x).
+    
+    Usage : 
+        The fit method is used to run the KLIEP algorithm using LCV and returns value of J 
+        trained on the entire training/test set with the best sigma found. 
+        Use the predict method on the training set to determine the sample weights from the KLIEP algorithm.
+    """
+    
+    def __init__(self, max_iter=5000, num_params=[.5], epsilon=1e-4, cv=5, sigmas=[1e-3, 1e-2, 1e-1, 1e0, 1e1, 1e2, 1e3], random_state=None, verbose=0):
+        """ 
+        Direct density estimation using an inner LCV loop to estimate the proper model. Can be used with sklearn
+        cross validation methods with or without storing the inner CV. To use a standard grid search.
+        
+        
+        max_iter : Number of iterations to perform
+        num_params : List of number of test set vectors used to construct the approximation for inner LCV.
+                     Must be a float. Original paper used 10%, i.e. =.1
+        sigmas : List of sigmas to be used in inner LCV loop.
+        epsilon : Additive factor in the iterative algorithm for numerical stability.
+        """
+        self.max_iter = max_iter
+        self.num_params = num_params
+        self.epsilon = epsilon
+        self.verbose = verbose
+        self.sigmas = sigmas
+        self.cv = cv
+        self.random_state = 0
+        
+    def fit(self, X_train, X_test, alpha_0=None):
+        """ Uses cross validation to select sigma as in the original paper (LCV).
+            In a break from sklearn convention, y=X_test.
+            The parameter cv corresponds to R in the original paper.
+            Once found, the best sigma is used to train on the full set."""
+        
+        # LCV loop, shuffle a copy in place for performance.
+        cv = self.cv
+        chunk = int(X_test.shape[0]/float(cv))
+        if self.random_state is not None:
+            np.random.seed(self.random_state)
+        X_test_shuffled = X_test.copy()
+        np.random.shuffle(X_test_shuffled)
+        
+        j_scores = {}
+        
+        if type(self.sigmas) != list:
+            self.sigmas = [self.sigmas]
+        
+        if type(self.num_params) != list:
+            self.num_params = [self.num_params]
+        
+        if len(self.sigmas) * len(self.num_params) > 1:
+            # Inner LCV loop
+            for num_param in self.num_params:
+                for sigma in self.sigmas:
+                    j_scores[(num_param,sigma)] = np.zeros(cv)
+                    for k in range(1,cv+1):
+                        if self.verbose > 0:
+                            print('Training: sigma: %s    R: %s' % (sigma, k))
+                        X_test_fold = X_test_shuffled[(k-1)*chunk:k*chunk,:] 
+                        j_scores[(num_param,sigma)][k-1] = self._fit(X_train=X_train, 
+                                                         X_test=X_test_fold,
+                                                         num_parameters = num_param,
+                                                         sigma=sigma)
+                    j_scores[(num_param,sigma)] = np.mean(j_scores[(num_param,sigma)])
+
+            sorted_scores = sorted([x for x in j_scores.items() if np.isfinite(x[1])], key=lambda x :x[1], reverse=True)
+            if len(sorted_scores) == 0:
+                warnings.warn('LCV failed to converge for all values of sigma.')
+                return self
+            self._sigma = sorted_scores[0][0][1]
+            self._num_parameters = sorted_scores[0][0][0]
+            self._j_scores = sorted_scores
+        else:
+            self._sigma = self.sigmas[0]
+            self._num_parameters = self.num_params[0]
+            # best sigma
+        self._j = self._fit(X_train=X_train, X_test=X_test_shuffled, num_parameters=self._num_parameters, sigma=self._sigma)
+
+        return self # Compatibility with sklearn
+        
+    def _fit(self, X_train, X_test, num_parameters, sigma, alpha_0=None):
+        """ Fits the estimator with the given parameters w-hat and returns J"""
+        
+        num_parameters = num_parameters
+        
+        if type(num_parameters) == float:
+            num_parameters = int(X_test.shape[0] * num_parameters)
+
+        self._select_param_vectors(X_test=X_test, 
+                                   sigma=sigma,
+                                   num_parameters=num_parameters)
+        
+        X_train = self._reshape_X(X_train)
+        X_test = self._reshape_X(X_test)
+        
+        if alpha_0 is None:
+            alpha_0 = np.ones(shape=(num_parameters,1))/float(num_parameters)
+        
+        self._find_alpha(X_train=X_train,
+                         X_test=X_test,
+                         num_parameters=num_parameters,
+                         epsilon=self.epsilon,
+                         alpha_0 = alpha_0,
+                         sigma=sigma)
+        
+        return self._calculate_j(X_test,sigma=sigma)
+    
+    def _calculate_j(self, X_test, sigma):
+        return np.log(self.predict(X_test,sigma=sigma)).sum()/X_test.shape[0]
+    
+    def score(self, X_test):
+        """ Return the J score, similar to sklearn's API """
+        return self._calculate_j(X_test=X_test, sigma=self._sigma)
+
+    @staticmethod   
+    def _reshape_X(X):
+        """ Reshape input from mxn to mx1xn to take advantage of numpy broadcasting. """
+        if len(X.shape) != 3:
+            return X.reshape((X.shape[0],1,X.shape[1]))
+        return X
+    
+    def _select_param_vectors(self, X_test, sigma, num_parameters):
+        """ X_test is the test set. b is the number of parameters. """ 
+        indices = np.random.choice(X_test.shape[0], size=num_parameters, replace=False)
+        self._test_vectors = X_test[indices,:].copy()
+        self._phi_fitted = True
+        
+    def _phi(self, X, sigma=None):
+        
+        if sigma is None:
+            sigma = self._sigma
+        
+        if self._phi_fitted:
+            return np.exp(-np.sum((X-self._test_vectors)**2, axis=-1)/(2*sigma**2))
+        raise Exception('Phi not fitted.')
+
+    def _find_alpha(self, alpha_0, X_train, X_test, num_parameters, sigma, epsilon):
+        A = np.zeros(shape=(X_test.shape[0],num_parameters))
+        b = np.zeros(shape=(num_parameters,1))
+
+        A = self._phi(X_test, sigma)
+        b = self._phi(X_train, sigma).sum(axis=0) / X_train.shape[0] 
+        b = b.reshape((num_parameters, 1))
+        
+        out = alpha_0.copy()
+        for k in range(self.max_iter):
+            out += epsilon*np.dot(np.transpose(A),1./np.dot(A,out))
+            out += b*(((1-np.dot(np.transpose(b),out))/np.dot(np.transpose(b),b)))
+            out = np.maximum(0,out)
+            out /= (np.dot(np.transpose(b),out))
+            
+        self._alpha = out
+        self._fitted = True
+        
+    def predict(self, X, sigma=None):
+        """ Equivalent of w(X) from the original paper."""
+        
+        X = self._reshape_X(X)
+        if not self._fitted:
+            raise Exception('Not fitted!')
+        return np.dot(self._phi(X, sigma=sigma), self._alpha).reshape((X.shape[0],))
+
+class StratifiedGroupKFold:
+    
+    def __init__(self, n_splits=5, random_state=42):
+        
+        self.k=n_splits
+        self.seed=random_state
+    
+    def split(self, X, y, s):
+        k = self.k
+        seed = self.seed
+        groups = s
+        labels_num = np.max(y) + 1
+        y_counts_per_group = defaultdict(lambda: np.zeros(labels_num))
+        y_distr = Counter()
+        for label, g in zip(y, groups):
+            y_counts_per_group[g][label] += 1
+            y_distr[label] += 1
+
+        y_counts_per_fold = defaultdict(lambda: np.zeros(labels_num))
+        groups_per_fold = defaultdict(set)
+
+        def eval_y_counts_per_fold(y_counts, fold):
+            y_counts_per_fold[fold] += y_counts
+            std_per_label = []
+            for label in range(labels_num):
+                label_std = np.std([y_counts_per_fold[i][label] / y_distr[label] for i in range(k)])
+                std_per_label.append(label_std)
+            y_counts_per_fold[fold] -= y_counts
+            return np.mean(std_per_label)
+
+        groups_and_y_counts = list(y_counts_per_group.items())
+        random.Random(seed).shuffle(groups_and_y_counts)
+
+        for g, y_counts in sorted(groups_and_y_counts, key=lambda x: -np.std(x[1])):
+            best_fold = None
+            min_eval = None
+            for i in range(k):
+                fold_eval = eval_y_counts_per_fold(y_counts, i)
+                if min_eval is None or fold_eval < min_eval:
+                    min_eval = fold_eval
+                    best_fold = i
+            y_counts_per_fold[best_fold] += y_counts
+            groups_per_fold[best_fold].add(g)
+
+        all_groups = set(groups)
+        for i in range(k):
+            train_groups = all_groups - groups_per_fold[i]
+            test_groups = groups_per_fold[i]
+
+            train_indices = [i for i, g in enumerate(groups) if g in train_groups]
+            test_indices = [i for i, g in enumerate(groups) if g in test_groups]
+
+            yield train_indices, test_indices
+
+class CovarianceConstraintLinearRegression:
+    """
+    Covariance-Constraint Logistic Regression
+    """
+    def __init__(self, **args):
+        
+        """
+        base_covariance: {None, dict(str: float)}
+            dictionary of sens-attr-val (key) to abs unconstrained-covariance-value
+            unconstrained-covariance-value is the measured between prediciton
+            and the binarised sens-attr-value vector from a normal Regression
+            
+            covariance(prediciton, bin-sens-attr-value) = 1/n * sum (prediciton * z),
+            where z = bin-sens-attr-value - bin-sens-attr-value.mean()
+                
+            if None, computes the dictionary from additional  unconstrained fitting.
+            * default: None
+        
+        cov_trehshold: {False, float, dict(str: float)}
+            the constrained covariance value to apply during fitting
+            if float, apply the same threshold to all sens-attr-values
+            if dict, apply value-specific threshold
+            if False, apply cov_coefficient instead
+            * default: False
+            
+        cov_coefficient: {False, float, dict(str: float)}
+            the coefficient value to apply to the base_covariance during fitting
+            if float [0,1] -> apply the same coefficient to all sens-attr-values
+            if dict, apply value-specific coefficient
+            if False, apply cov_trehshold instead
+            * default: 1e-1
+            
+        add_intercept: bool
+            if the classifier should add a 1s column to serve as intercept
+            * default: True
+        """
+        
+        keys = ["base_covariance", "add_intercept", "cov_trehshold", "cov_coefficient"]
+        args_keys = list(args.keys())
+        
+        if "base_covarianve" not in args_keys:
+            #self.base_covariance = None
+            args["base_covariance"] = None
+        
+        if "add_intercept" not in args_keys:
+            #self.add_intercept = True
+            args["add_intercept"] = True
+            
+        if "cov_trehshold" not in args_keys:
+            #self.cov_trehshold = False
+            args["cov_trehshold"] = False
+            
+        if "cov_coefficient" not in args_keys:
+            #self.cov_coefficient = 1e-1
+            args["cov_coefficient"] = 1e-1
+    
+        self.args = args
+        self.is_fit = False
+    
+    def fit(self, X, y, s, weights=None):
+        """
+        X: np.array.astype(float) shape(n,m)
+        y: np.array.astype(int)   shape(n,)
+        s: np.array.astype(str)   shape(n,)
+        """
+       
+        if type(weights) == type(None):
+            weights = np.ones_like(y)
+        X = np.array(X).astype(float)
+        y = np.array(y).astype(float)
+        s = pd.get_dummies(np.array(s).astype(str))
+        z = s - s.mean()
+        
+        if self.args["add_intercept"] == True:
+            X = np.concatenate((X, np.ones(shape=(X.shape[0],1))), axis=1)
+
+        if self.args["base_covariance"] == None:
+            base_covariance = {}
+            w = cp.Variable(X.shape[1])
+    
+            loss = cp.sum_squares(X @ w - y) / X.shape[0]
+            obj = cp.Minimize(loss)
+            prob = cp.Problem(obj)
+            prob.solve()
+
+            pred = X @ w.value
+            for attr_value in z.columns:
+                base_covariance[attr_value] = abs(sum((pred) * z[attr_value]) / X.shape[0])
+            self.args["base_covariance"] = base_covariance
+        
+        # make constraints sens-atr-value specific
+        constraints = []
+        w = cp.Variable(X.shape[1])
+        if self.args["cov_trehshold"] == False:
+            cov_coefficient = self.args["cov_coefficient"]
+            base_covariance = self.args["base_covariance"]
+            if type(cov_coefficient) == type({}):
+                for attr_value in z.columns:
+                    cov_coef = cov_coefficient[attr_value]
+                    cov_trehshold = base_covariance[attr_value] * cov_coef
+                    covariance = cp.sum(cp.multiply(z[attr_value], X @ w)) / X.shape[0]
+                    constraints.append(covariance >= -cov_trehshold)
+                    constraints.append(covariance <= cov_trehshold)
+            else:
+                if cov_coefficient < 1: # if not, then we don't need constraints
+                    for attr_value in z.columns:
+                        cov_trehshold = base_covariance[attr_value] * cov_coefficient
+                        covariance = cp.sum(cp.multiply(z[attr_value], X @ w)) / X.shape[0]
+                        constraints.append(covariance >= -cov_trehshold)
+                        constraints.append(covariance <= cov_trehshold)
+        
+        loss = cp.sum_squares(X @ w - y) / X.shape[0]
+        
+        obj = cp.Minimize(loss)
+        prob = cp.Problem(obj, constraints=constraints)
+        fun_value = prob.solve()
+        
+        self.is_fit = True
+        self.coefs = w.value
+        self.fun_value = fun_value
+        
+    def predict(self, X):
+        if self.args["add_intercept"] == True:
+            X = np.concatenate((X, np.ones(shape=(X.shape[0],1))), axis=1)
+            pred = X @ self.coefs
+        else:
+            pred = X @ self.coefs
+        return pred
+    
+    def __str__(self):
+        args_str = pprint.pformat(self.args, indent=4)
+        return("Covariance-Constraint Logistic Regression\n" + args_str)
+    
+    def __repr__(self):
+        args_str = pprint.pformat(self.args, indent=4)
+        return("Covariance-Constraint Logistic Regression\n" + args_str)
+
+class CovarianceConstraintLogisticRegression:
+    
+    """
+    Covariance-Constraint Logistic Regression
+    """
+    def __init__(self, **args):
+        
+        """
+        base_covariance: {None, dict(str: float)}
+            dictionary of sens-attr-val (key) to abs unconstrained-covariance-value
+            unconstrained-covariance-value is the measured between logitraw prediciton
+            and the binarised sens-attr-value vector from a normal Logistic Regression
+            
+            covariance(logitraw, bin-sens-attr-value) = 1/n * sum (logitraw * z),
+            where z = bin-sens-attr-value - bin-sens-attr-value.mean()
+                
+            if None, computes the dictionary from additional  unconstrained fitting.
+            * default: None
+        
+        cov_trehshold: {False, float, dict(str: float)}
+            the constrained covariance value to apply during fitting
+            if float, apply the same threshold to all sens-attr-values
+            if dict, apply value-specific threshold
+            if False, apply cov_coefficient instead
+            * default: False
+            
+        cov_coefficient: {False, float, dict(str: float)}
+            the coefficient value to apply to the base_covariance during fitting
+            if float [0,1] -> apply the same coefficient to all sens-attr-values
+            if dict, apply value-specific coefficient
+            if False, apply cov_trehshold instead
+            * default: 1e-1
+            
+        add_intercept: bool
+            if the classifier should add a 1s column to serve as intercept
+            * default: True
+        """
+        
+        keys = ["base_covariance", "add_intercept", "cov_trehshold", "cov_coefficient"]
+        args_keys = list(args.keys())
+        
+        if "base_covarianve" not in args_keys:
+            #self.base_covariance = None
+            args["base_covariance"] = None
+        
+        if "add_intercept" not in args_keys:
+            #self.add_intercept = True
+            args["add_intercept"] = True
+            
+        if "cov_trehshold" not in args_keys:
+            #self.cov_trehshold = False
+            args["cov_trehshold"] = False
+            
+        if "cov_coefficient" not in args_keys:
+            #self.cov_coefficient = 1e-1
+            args["cov_coefficient"] = 1e-1
+    
+        self.args = args
+        self.is_fit = False
+    
+    def fit(self, X, y, s, weights=None):
+        np.random.seed(42)
+        seed(42)
+        """
+        X: np.array.astype(float) shape(n,m)
+        y: np.array.astype(int)   shape(n,)
+        s: np.array.astype(str)   shape(n,)
+        """
+       
+        if type(weights) == type(None):
+            weights = np.ones_like(y)
+        X = np.array(X)
+        y = np.array(y)
+        s = pd.get_dummies(np.array(s).astype(str))
+        z = s - s.mean()
+        
+        if self.args["add_intercept"] == True:
+            X = np.concatenate((X, np.ones(shape=(X.shape[0],1))), axis=1)
+
+        if self.args["base_covariance"] == None:
+            base_covariance = {}
+            w = cp.Variable(X.shape[1])
+    
+            loss = -1 * cp.sum(
+                cp.multiply(
+                    weights,
+                    cp.multiply(y, X @ w) - cp.logistic(X @ w)
+                )
+            ) / X.shape[0]
+            obj = cp.Minimize(loss)
+            prob = cp.Problem(obj)
+            try:
+                prob.solve()
+            except:
+                prob.solve(solver="SCS")
+#                 abstol=1e-1,
+#                 reltol=1e-1,
+#                 feastol=1e-1,                
+#                 abstol_inacc=1e-1,
+#                 reltol_inacc=1e-1,
+#                 feastol_inacc=1e-1,                
+#                 max_iters=int(1e2)
+#             )
+            pred = X @ w.value
+            for attr_value in z.columns:
+                base_covariance[attr_value] = abs(sum(pred * z[attr_value]) / X.shape[0])
+            self.args["base_covariance"] = base_covariance
+        
+        # make constraints sens-atr-value specific
+        constraints = []
+        w = cp.Variable(X.shape[1])
+        if self.args["cov_trehshold"] == False:
+            cov_coefficient = self.args["cov_coefficient"]
+            base_covariance = self.args["base_covariance"]
+            if type(cov_coefficient) == type({}):
+                for attr_value in z.columns:
+                    cov_coef = cov_coefficient[attr_value]
+                    cov_trehshold = base_covariance[attr_value] * cov_coef
+                    covariance = cp.sum(cp.multiply(z[attr_value], X @ w)) / X.shape[0]
+                    constraints.append(covariance >= -cov_trehshold)
+                    constraints.append(covariance <= cov_trehshold)
+            else:
+                if cov_coefficient < 1: # if not, then we don't need constraints
+                    for attr_value in z.columns:
+                        cov_trehshold = base_covariance[attr_value] * cov_coefficient
+                        covariance = cp.sum(cp.multiply(z[attr_value], X @ w)) / X.shape[0]
+                        constraints.append(covariance >= -cov_trehshold)
+                        constraints.append(covariance <= cov_trehshold)
+        
+        loss = -1 * cp.sum(
+            cp.multiply(
+                weights,
+                cp.multiply(y, X @ w) - cp.logistic(X @ w)
+            )
+        ) / X.shape[0]
+        
+        obj = cp.Minimize(loss)
+        prob = cp.Problem(obj, constraints=constraints)
+        try:
+            fun_value = prob.solve()
+        except:
+            fun_value = prob.solve(solver="SCS")
+#             abstol=1e-1,
+#             reltol=1e-1,
+#             feastol=1e-1,                
+#             abstol_inacc=1e-1,
+#             reltol_inacc=1e-1,
+#             feastol_inacc=1e-1,                
+#             max_iters=int(1e2)
+#         )
+        self.is_fit = True
+        self.coefs = w.value
+        self.fun_value = fun_value
+        
+    def predict_raw(self, X):
+        if self.args["add_intercept"] == True:
+            X = np.concatenate((X, np.ones(shape=(X.shape[0],1))), axis=1)
+        pred = np.array([-1 * X @ self.coefs, X @ self.coefs]).T
+        return pred
+    
+    def predict_proba(self, X):
+        return sigmoid(self.predict_raw(X))
+    
+    def predict(self, X):
+        return np.argmax(self.predict_raw(X), axis=1)
+    
+    def __str__(self):
+        args_str = pprint.pformat(self.args, indent=4)
+        return("Covariance-Constraint Logistic Regression\n" + args_str)
+    
+    def __repr__(self):
+        args_str = pprint.pformat(self.args, indent=4)
+        return("Covariance-Constraint Logistic Regression\n" + args_str)
+
+class BiasConstraintLogisticRegression():
+    
+    def __init__(self, ortho=1, l1_reg_factor=0, add_intersect=True, ortho_method="avg", random_state=42):
+        """
+        Logistic Regression with bias constraint
+        
+        ortho -> float:
+            strength of constraint over sensitive feature
+            
+        ortho_method -> str:["avg", "w_avg", "inv_w_avg", "max"]
+            how to compute 1 sens-reg value from categorical sens attribute
+            
+        random_state -> int:
+            random state for initial guess over vector w + b
+            
+        add_intersect -> bool:
+            if True, no intercept is computed (b = 0)
+            
+        l1_reg_factor -> float:
+            proportional to l1-reg strength
+            min_gain_increase = l1_reg_factor/X.shape[1]
+            defines the minimum relative weight increase to retain coefs      
+        """
+        
+        self.ortho=ortho
+        self.is_fit=False
+        self.ortho_method=ortho_method
+        self.random_state=random_state
+        self.add_intersect=add_intersect
+        self.l1_reg_factor=l1_reg_factor
+        
+        seed(random_state)
+        np.random.seed(random_state)
+
+    def fit(self, X, y, s):
+        def loss(coefs, X, y, s, ortho=1, add_intersect=True, ortho_method="avg"):
+            def corr2_coeff(A, B):
+                # Rowwise mean of input arrays & subtract from input arrays themeselves
+                A_mA = A - A.mean(1)[:, None]
+                B_mB = B - B.mean(1)[:, None]
+
+                # Sum of squares across rows
+                ssA = (A_mA**2).sum(1)
+                ssB = (B_mB**2).sum(1)
+
+                # Finally get corr coeff
+                return np.dot(A_mA, B_mB.T) / np.sqrt(np.dot(ssA[:, None],ssB[None]))
+            
+            if add_intersect:
+                b = coefs[-1]
+                w = coefs[:-1]
+            else:
+                b = 0
+                w = coefs[:]
+            score = np.dot(X,w)+b
+            pred = sigmoid(score)
+            
+            #cap in official Kaggle implementation
+            #per forums/t/1576/r-code-for-logloss
+            epsilon = 1e-15
+            pred = np.maximum(epsilon, pred)
+            pred = np.minimum(1-epsilon, pred)
+            
+            loss = sum(y*np.log(pred) + np.subtract(1,y)*np.log(np.subtract(1,pred))) * -1.0 / len(y)
+            
+            # corelation coef **2
+            score = score.reshape(len(score), 1)
+            if len(np.unique(score))==1:
+                sens_reg = 1
+            else:
+                if ortho_method=="avg":
+                    sens_reg = sum(
+                        corr2_coeff(s.T,score.T).ravel()**2
+                    ) / s.shape[1]
+                elif ortho_method=="max":
+                    sens_reg = max(
+                        corr2_coeff(s.T,score.T).ravel()**2
+                    )
+                elif ortho_method=="w_avg":
+                    sens_reg = np.average(
+                        corr2_coeff(s.T,score.T).ravel()**2, weights=np.sum(s, axis=0)
+                    )
+                elif ortho_method=="inv_w_avg":
+                    sens_reg = np.average(
+                        corr2_coeff(s.T,score.T).ravel()**2, weights=len(s)/np.sum(s, axis=0)
+                    )
+
+            return loss + ortho*sens_reg
+        
+        seed(self.random_state)
+        np.random.seed(self.random_state)
+        X = np.array(X).astype(float)
+        y = np.array(y).astype(int)
+        s = np.array(s).astype(str)
+        s = pd.get_dummies(s).values.astype(int)
+        if self.add_intersect:
+            if self.random_state == None:
+                coefs = np.ones(shape=(X.shape[1]+1))
+            else:
+                coefs = np.random.normal(size=(X.shape[1]+1))
+        else:
+            if self.random_state == None:
+                coefs = np.zeros(shape=(X.shape[1]))
+            else:
+                coefs = np.random.normal(size=(X.shape[1]))
+        
+        message = "failure"
+        while "success" not in message:
+            result = minimize(
+                fun=loss,
+                x0=coefs,
+                args=(X, y, s, self.ortho, self.add_intersect, self.ortho_method),
+                method="SLSQP",
+                jac="3-point",
+                tol=1e-7,
+            )
+            message = result.message
+            coefs = result.x
+            
+        if self.add_intersect:
+            self.w = coefs[:-1]
+            self.b = coefs[-1]
+        else:
+            self.w = coefs
+            self.b = 0
+        
+        if self.l1_reg_factor > 0:
+            # get useful weights 
+            i = 0
+            stop = False
+            min_gain_increase = self.l1_reg_factor/X.shape[1]
+            cum_sum_normalised_w = np.cumsum(np.array(sorted(abs(self.w), reverse=True)) / sum(abs(self.w)))
+            while (not stop) and (i < len(self.w)-1):
+                gain = cum_sum_normalised_w[i+1] - cum_sum_normalised_w[i] 
+                if gain >= min_gain_increase: # if gain in cumdensity of weight is lower than proportion of weight
+                    i+=1
+                else:
+                    stop=True
+            retained_w_index = sorted(np.argsort(abs(self.w))[-i-1:])
+            X_retained = X[:,retained_w_index]
+            if self.add_intersect:
+                coefs = np.array((self.w[retained_w_index]).tolist() + [self.b])
+            else:
+                coefs = self.w[retained_w_index]
+            message = "failure"
+            while "success" not in message:
+                result = minimize(
+                    fun=loss,
+                    x0=coefs,
+                    args=(X_retained, y, s, self.ortho, self.add_intersect, self.ortho_method),
+                    method="SLSQP",
+                    jac="3-point",
+                    tol=1e75,
+                )
+                message = result.message
+                coefs = result.x
+            
+            if self.add_intersect:
+                self.b = coefs[-1]
+                w = np.zeros(shape=X.shape[1])
+                w[retained_w_index] = coefs[:-1]
+                self.w = w
+                
+            else:
+                self.b = 0
+                w = np.zeros(shape=X.shape[1])
+                w[retained_w_index] = coefs[:]
+                self.w = w
+            
+            self.is_fit=True
+        else:
+            self.is_fit=True
+    
+    def predict(self, X):
+        """
+        Returns raw logit score (-int, +inf)
+        """
+        return np.dot(X, self.w) + self.b
+    
+    def predict_proba(self, X):
+        return np.array(
+            [
+                1-sigmoid(np.dot(X, self.w) + self.b),
+                sigmoid(np.dot(X, self.w) + self.b),
+            ]
+        ).T
 
 class BiasConstraintDecisionTreeClassifier():
     def __init__(self,
@@ -126,6 +882,7 @@ class BiasConstraintDecisionTreeClassifier():
         # returns a dictionary as {feature: cutoff_candidate_i} meant as <
         def get_candidate_splits(indexs):
             
+            n_bins = self.n_bins
             candidate_splits = {}
             chosen_features = choose_features()
             #print(chosen_features)
@@ -642,7 +1399,7 @@ class BiasConstraintDecisionTreeClassifier():
 
             return probas
         
-        probas = predict_proba(X)[:,1]
+        proba = predict_proba(X)[:,1]
         predicts = np.repeat(0, X.shape[0])
         predicts[probas>=self.pred_th] = 1
         
@@ -684,7 +1441,7 @@ class BiasConstraintRandomForestClassifier():
     def __init__(self, n_estimators=500, n_jobs=-1,
         n_bins=2, min_leaf=1, max_depth=2, n_samples=1.0, max_features="auto", bootstrap=True, random_state=42,
         criterion="auc_sub", bias_method="avg", compound_bias_method="avg", orthogonality=.5
-        ):
+    ):
         """
         Bias Constraint Forest Classifier
         n_estimators -> int: BCDTress to generate
@@ -764,7 +1521,7 @@ class BiasConstraintRandomForestClassifier():
         ]
         self.trees = dts
         
-    def fit(self, X, y, s, verbose=False):
+    def fit(self, X, y, s):
       
         def batch(iterable, n_jobs=1):
             if n_jobs==-1:
@@ -777,7 +1534,7 @@ class BiasConstraintRandomForestClassifier():
         def fit_trees_parallel(i, dt_batches, X, y, s):
             dt_batch = dt_batches[i]
             fit_dt_batch = []
-            for dt in tqdm(dt_batch, desc=str(i), disable=not verbose):
+            for dt in tqdm(dt_batch, desc=str(i)):
                 dt.fit(X, y, s)
                 fit_dt_batch.append(dt)
             return fit_dt_batch
@@ -857,3 +1614,249 @@ class BiasConstraintRandomForestClassifier():
                     np.repeat(self.y_pos, y_preds.shape[1]).reshape(1, y_preds.shape[1])
                 ), axis=0))[0][0]
             return predictions
+    
+def run_regression(
+    X="X", y="y", s="s", Scaler=RS,
+    cov_coefs=sorted(set(np.linspace(0,1,11).tolist() + np.geomspace(1e-2,1,11).tolist())), random_state=42,
+    Splitter=StratifiedGroupKFold, n_splits=2, n_bins=1, degree=1, perf_measure=mean_squared_error, plot=True,return_output=False
+):
+    """
+    if return_output: cov_test_measures, cov_train_measures, cov_test_covariances, cov_train_covariances
+    """
+    cov_test_measures = []
+    cov_train_measures = []
+    cov_test_covariances = []
+    cov_train_covariances = []
+    for cov_coef in tqdm_n(cov_coefs):
+        test_measures = []
+        train_measures = []
+        test_covariances = []
+        train_covariances = []
+        if "Stratified" in str(Splitter):
+            splitter = Splitter(n_splits=n_splits, random_state=random_state)
+        else:
+            splitter = Splitter(n_splits=n_splits)
+        y_split = pd.qcut(y, n_bins, labels=np.array(range(n_bins)))
+        for train_idx, test_idx in splitter.split(X,y_split,s):
+            X_train, X_test = X[train_idx], X[test_idx]
+            y_train, y_test = y[train_idx], y[test_idx]
+            s_train, s_test = s[train_idx], s[test_idx]
+
+#             scaler_y = Scaler().fit(y_train.reshape(y_train.shape[0],1))
+#             y_test = scaler_y.transform(y_test.reshape(y_test.shape[0],1)).ravel()
+#             y_train = scaler_y.transform(y_train.reshape(y_train.shape[0],1)).ravel()
+
+            z_test = pd.get_dummies(s_test) - pd.get_dummies(s_test).mean()
+            z_test[::] = 1 if z_test.shape[1]==1 else z_test.values
+            z_train = pd.get_dummies(s_train) - pd.get_dummies(s_train).mean()
+
+            pf = PF(degree=degree, include_bias=False).fit(X_train)
+            X_test = pf.transform(X_test)
+            X_train = pf.transform(X_train)
+
+            scaler_X = Scaler().fit(X_train)
+            X_test = scaler_X.transform(X_test)
+            X_train = scaler_X.transform(X_train)
+
+            reg = CovarianceConstraintLinearRegression(
+                cov_coefficient=cov_coef
+            )
+            reg.fit(X_train, y_train, s_train)
+
+            train_covariance = []
+            for s_uni in np.unique(s_train):
+                uni_train_covariance = abs(np.mean(reg.predict(X_train) * z_train[s_uni]))
+                train_covariance.append(uni_train_covariance)
+            train_covariance = np.mean(train_covariance)
+            train_covariances.append(train_covariance)
+
+            test_covariance = []
+            for s_uni in np.unique(s_test):
+                uni_test_covariance = abs(np.mean(reg.predict(X_test) * z_test[s_uni]))
+                test_covariance.append(uni_test_covariance)
+            test_covariance = np.mean(test_covariance)
+            test_covariances.append(test_covariance)
+
+            test_measure = perf_measure(y_test, reg.predict(X_test))
+            train_measure = perf_measure(y_train, reg.predict(X_train))
+            test_measures.append(test_measure)
+            train_measures.append(train_measure)
+        cov_test_measures.append(test_measures)
+        cov_train_measures.append(train_measures)
+        cov_test_covariances.append(test_covariances)
+        cov_train_covariances.append(train_covariances)
+
+    if plot:
+        fig, axs = plt.subplots(1,2, figsize=(11,3), dpi=150, sharex=True)
+        ax = axs[0]
+        sb.lineplot(x=cov_coefs, y=np.mean(cov_test_measures, axis=1), label="test", ax=ax, color="C0")
+        ax.fill_between(
+            x=cov_coefs, color="C0", alpha=0.1,
+            y1=np.mean(cov_test_measures, axis=1)+np.std(cov_test_measures, axis=1),
+            y2=np.mean(cov_test_measures, axis=1)-np.std(cov_test_measures, axis=1),
+        )
+
+        sb.lineplot(x=cov_coefs, y=np.mean(cov_train_measures, axis=1), label="train", ax=ax, color="C1")
+        ax.fill_between(
+            x=cov_coefs, color="C1", alpha=0.1,
+            y1=np.mean(cov_train_measures, axis=1)+np.std(cov_train_measures, axis=1),
+            y2=np.mean(cov_train_measures, axis=1)-np.std(cov_train_measures, axis=1),
+        )
+        ax.set_xlabel("Covariance coefficient\n(relative allowed covariance)")
+        ax.set_ylabel("Performance (" +str(perf_measure).split(" ")[1]+")")
+        ax.grid()
+
+        ax2 = axs[1]
+        sb.lineplot(x=cov_coefs, y=np.mean(cov_test_covariances, axis=1), label="test", ax=ax2, color="C2")
+        ax2.fill_between(
+            x=cov_coefs, color="C2", alpha=0.1,
+            y1=np.mean(cov_test_covariances, axis=1)+np.std(cov_test_covariances, axis=1),
+            y2=np.mean(cov_test_covariances, axis=1)-np.std(cov_test_covariances, axis=1),
+        )
+
+        sb.lineplot(x=cov_coefs, y=np.mean(cov_train_covariances, axis=1), label="train", ax=ax2, color="C4")
+        ax2.fill_between(
+            x=cov_coefs, color="C4", alpha=0.1,
+            y1=np.mean(cov_train_covariances, axis=1)+np.std(cov_train_covariances, axis=1),
+            y2=np.mean(cov_train_covariances, axis=1)-np.std(cov_train_covariances, axis=1),
+        )
+
+        ax2.set_xlabel("Covariance coefficient\n(relative allowed covariance)")
+        ax2.set_ylabel("Covariance")
+        ax2.grid()
+        plt.suptitle("Regression", x=.5125)
+        plt.show()
+        
+    if return_output == True:
+        return cov_test_measures, cov_train_measures, cov_test_covariances, cov_train_covariances
+
+def run_classification(
+    X="X", y="y", s="s", Scaler=SS, sample_weights=None,
+    cov_coefs=sorted(set(np.linspace(0,1,21).tolist())), random_state=42,
+    Splitter=StratifiedGroupKFold, n_splits=2, degree=1, perf_measure=roc_auc_score, plot=True,return_output=False
+):
+    """
+    if return_output: cov_test_measures, cov_train_measures, cov_test_covariances, cov_train_covariances
+    """
+    cov_test_measures = []
+    cov_train_measures = []
+    cov_test_covariances = []
+    cov_train_covariances = []
+    for cov_coef in tqdm_n(cov_coefs):
+        test_measures = []
+        train_measures = []
+        test_covariances = []
+        train_covariances = []
+        if "Stratified" in str(Splitter):
+            splitter = Splitter(n_splits=n_splits, random_state=random_state)
+        else:
+            splitter = Splitter(n_splits=n_splits)
+        for train_idx, test_idx in splitter.split(X,y,s):
+            X_train, X_test = X[train_idx], X[test_idx]
+            y_train, y_test = y[train_idx], y[test_idx]
+            s_train, s_test = s[train_idx], s[test_idx]
+
+            z_test = pd.get_dummies(s_test) - pd.get_dummies(s_test).mean()
+            z_test[::] = 1 if z_test.shape[1]==1 else z_test.values
+            z_train = pd.get_dummies(s_train) - pd.get_dummies(s_train).mean()
+            
+            pf = PF(degree=degree, include_bias=False).fit(X_train)
+            X_test = pf.transform(X_test)
+            X_train = pf.transform(X_train)
+            
+            scaler_X = Scaler().fit(X_train)
+            X_test = scaler_X.transform(X_test)
+            X_train = scaler_X.transform(X_train)
+            
+            if type(sample_weights)==type(np.array([])):
+                weights=sample_weights
+                                          
+            elif sample_weights=="kliep":
+                kliep = DensityRatioEstimator()
+                kliep.fit(X_train, X_test) # keyword arguments are X_train and X_test
+                weights = kliep.predict(X_train)
+            
+            else:
+                weights=None
+            
+            counter = 0
+            success = 0
+            while not success:
+                try:
+                    clf = CovarianceConstraintLogisticRegression(
+                        cov_coefficient=cov_coef
+                    )
+                    clf.fit(X_train, y_train, s_train, weights=weights)
+                    success = 1
+                except:
+                    print("covariance-coefficient " + cov_coef + " failed, rounding further")
+                    cov_coef = round(cov_coef, 5-counter)
+                    counter += 1
+                    
+            train_covariance = []
+            for s_uni in np.unique(s_train):
+                uni_train_covariance = abs(np.mean(clf.predict(X_train) * z_train[s_uni]))
+                train_covariance.append(uni_train_covariance)
+            train_covariance = np.mean(train_covariance)
+            train_covariances.append(train_covariance)
+
+            test_covariance = []
+            for s_uni in np.unique(s_test):
+                uni_test_covariance = abs(np.mean(clf.predict(X_test) * z_test[s_uni]))
+                test_covariance.append(uni_test_covariance)
+            test_covariance = np.mean(test_covariance)
+            test_covariances.append(test_covariance)
+
+            test_measure = perf_measure(y_test, clf.predict(X_test))
+            train_measure = perf_measure(y_train, clf.predict(X_train))
+            test_measures.append(test_measure)
+            train_measures.append(train_measure)
+        cov_test_measures.append(test_measures)
+        cov_train_measures.append(train_measures)
+        cov_test_covariances.append(test_covariances)
+        cov_train_covariances.append(train_covariances)
+
+    if plot:
+        fig, axs = plt.subplots(1,2, figsize=(11,3), dpi=150, sharex=True)
+        ax = axs[0]
+        sb.lineplot(x=cov_coefs, y=np.mean(cov_test_measures, axis=1), label="test", ax=ax, color="C0")
+        ax.fill_between(
+            x=cov_coefs, color="C0", alpha=0.1,
+            y1=np.mean(cov_test_measures, axis=1)+np.std(cov_test_measures, axis=1),
+            y2=np.mean(cov_test_measures, axis=1)-np.std(cov_test_measures, axis=1),
+        )
+
+        sb.lineplot(x=cov_coefs, y=np.mean(cov_train_measures, axis=1), label="train", ax=ax, color="C1")
+        ax.fill_between(
+            x=cov_coefs, color="C1", alpha=0.1,
+            y1=np.mean(cov_train_measures, axis=1)+np.std(cov_train_measures, axis=1),
+            y2=np.mean(cov_train_measures, axis=1)-np.std(cov_train_measures, axis=1),
+        )
+        ax.set_xlabel("Covariance coefficient\n(relative allowed covariance)")
+        ax.set_ylabel("Performance (" +str(perf_measure).split(" ")[1]+")")
+        ax.grid()
+
+        ax2 = axs[1]
+        sb.lineplot(x=cov_coefs, y=np.mean(cov_test_covariances, axis=1), label="test", ax=ax2, color="C2")
+        ax2.fill_between(
+            x=cov_coefs, color="C2", alpha=0.1,
+            y1=np.mean(cov_test_covariances, axis=1)+np.std(cov_test_covariances, axis=1),
+            y2=np.mean(cov_test_covariances, axis=1)-np.std(cov_test_covariances, axis=1),
+        )
+
+        sb.lineplot(x=cov_coefs, y=np.mean(cov_train_covariances, axis=1), label="train", ax=ax2, color="C4")
+        ax2.fill_between(
+            x=cov_coefs, color="C4", alpha=0.1,
+            y1=np.mean(cov_train_covariances, axis=1)+np.std(cov_train_covariances, axis=1),
+            y2=np.mean(cov_train_covariances, axis=1)-np.std(cov_train_covariances, axis=1),
+        )
+
+        ax2.set_xlabel("Covariance coefficient\n(relative allowed covariance)")
+        ax2.set_ylabel("Covariance")
+        ax2.grid()
+        plt.suptitle("Classification", x=.5125)
+        plt.show()
+    
+    if return_output == True:
+        return cov_test_measures, cov_train_measures, cov_test_covariances, cov_train_covariances
+   
