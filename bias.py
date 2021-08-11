@@ -406,7 +406,6 @@ class CovarianceConstraintLinearRegression:
         return("Covariance-Constraint Logistic Regression\n" + args_str)
 
 class CovarianceConstraintLogisticRegression:
-    
     """
     Covariance-Constraint Logistic Regression
     """
@@ -466,8 +465,6 @@ class CovarianceConstraintLogisticRegression:
         self.is_fit = False
     
     def fit(self, X, y, s, weights=None):
-        np.random.seed(42)
-        seed(42)
         """
         X: np.array.astype(float) shape(n,m)
         y: np.array.astype(int)   shape(n,)
@@ -476,8 +473,8 @@ class CovarianceConstraintLogisticRegression:
        
         if type(weights) == type(None):
             weights = np.ones_like(y)
-        X = np.array(X)
-        y = np.array(y)
+        X = np.array(X).astype(float)
+        y = np.array(y).astype(int)
         s = pd.get_dummies(np.array(s).astype(str))
         z = s - s.mean()
         
@@ -496,18 +493,15 @@ class CovarianceConstraintLogisticRegression:
             ) / X.shape[0]
             obj = cp.Minimize(loss)
             prob = cp.Problem(obj)
-            try:
-                prob.solve()
-            except:
-                prob.solve(solver="SCS")
-#                 abstol=1e-1,
-#                 reltol=1e-1,
-#                 feastol=1e-1,                
-#                 abstol_inacc=1e-1,
-#                 reltol_inacc=1e-1,
-#                 feastol_inacc=1e-1,                
-#                 max_iters=int(1e2)
-#             )
+            prob.solve(
+                abstol=1e-2,
+                reltol=1e-2,
+                feastol=1e-2,                
+                abstol_inacc=1e-2,
+                reltol_inacc=1e-2,
+                feastol_inacc=1e-2,                
+                max_iters=int(1e2)
+            )
             pred = X @ w.value
             for attr_value in z.columns:
                 base_covariance[attr_value] = abs(sum(pred * z[attr_value]) / X.shape[0])
@@ -543,18 +537,15 @@ class CovarianceConstraintLogisticRegression:
         
         obj = cp.Minimize(loss)
         prob = cp.Problem(obj, constraints=constraints)
-        try:
-            fun_value = prob.solve()
-        except:
-            fun_value = prob.solve(solver="SCS")
-#             abstol=1e-1,
-#             reltol=1e-1,
-#             feastol=1e-1,                
-#             abstol_inacc=1e-1,
-#             reltol_inacc=1e-1,
-#             feastol_inacc=1e-1,                
-#             max_iters=int(1e2)
-#         )
+        fun_value = prob.solve(
+            abstol=1e-2,
+            reltol=1e-2,
+            feastol=1e-2,                
+            abstol_inacc=1e-2,
+            reltol_inacc=1e-2,
+            feastol_inacc=1e-2,                
+            max_iters=int(1e2)
+        )
         self.is_fit = True
         self.coefs = w.value
         self.fun_value = fun_value
