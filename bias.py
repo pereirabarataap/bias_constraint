@@ -445,7 +445,7 @@ class CovarianceConstraintLogisticRegression:
         keys = ["base_covariance", "add_intercept", "cov_trehshold", "cov_coefficient"]
         args_keys = list(args.keys())
         
-        if "base_covarianve" not in args_keys:
+        if "base_covariance" not in args_keys:
             #self.base_covariance = None
             args["base_covariance"] = None
         
