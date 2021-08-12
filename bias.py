@@ -405,6 +405,14 @@ class CovarianceConstraintLinearRegression:
         args_str = pprint.pformat(self.args, indent=4)
         return("Covariance-Constraint Logistic Regression\n" + args_str)
 
+import cvxpy as cp
+
+import pprint
+from scipy.special import expit as sigmoid
+
+
+print(cp.__version__)
+
 class CovarianceConstraintLogisticRegression:
     """
     Covariance-Constraint Logistic Regression
@@ -436,7 +444,16 @@ class CovarianceConstraintLogisticRegression:
             if dict, apply value-specific coefficient
             if False, apply cov_trehshold instead
             * default: 1e-1
-            
+        
+        lambd: float
+            constant that multiplies the penalty terms in elastic net
+            * default: 0
+        
+        alpha: float
+            controls the ratio between l1 and l2 as
+                alpha*norm1(w) + (1-alpha)*norm2(w)
+            must be in betwen [0,1]
+
         add_intercept: bool
             if the classifier should add a 1s column to serve as intercept
             * default: True
@@ -460,7 +477,15 @@ class CovarianceConstraintLogisticRegression:
         if "cov_coefficient" not in args_keys:
             #self.cov_coefficient = 1e-1
             args["cov_coefficient"] = 1e-1
-    
+        
+        if "lambd" not in args_keys:
+            #self.alpha = 1
+            args["lambd"] = 0
+        
+        if "alpha" not in args_keys:
+            #self.alpha = 1
+            args["alpha"] = 1
+        
         self.args = args
         self.is_fit = False
     
@@ -484,13 +509,17 @@ class CovarianceConstraintLogisticRegression:
         if self.args["base_covariance"] == None:
             base_covariance = {}
             w = cp.Variable(X.shape[1])
-    
+            # logistic loss
             loss = -1 * cp.sum(
                 cp.multiply(
                     weights,
                     cp.multiply(y, X @ w) - cp.logistic(X @ w)
                 )
             ) / X.shape[0]
+            # regularisation
+            loss = loss + self.args["lambd"] * (
+                self.args["alpha"]*cp.norm1(w[:-1]) + (1-self.args["alpha"])*cp.norm2(w[:-1])
+            )
             obj = cp.Minimize(loss)
             prob = cp.Problem(obj)
             prob.solve(
@@ -527,14 +556,17 @@ class CovarianceConstraintLogisticRegression:
                         covariance = cp.sum(cp.multiply(z[attr_value], X @ w)) / X.shape[0]
                         constraints.append(covariance >= -cov_trehshold)
                         constraints.append(covariance <= cov_trehshold)
-        
+        # logistic loss
         loss = -1 * cp.sum(
             cp.multiply(
                 weights,
                 cp.multiply(y, X @ w) - cp.logistic(X @ w)
             )
         ) / X.shape[0]
-        
+        # regularisation
+        loss = loss + self.args["lambd"] * (
+            self.args["alpha"]*cp.norm1(w[:-1]) + (1-self.args["alpha"])*cp.norm2(w[:-1])
+        )
         obj = cp.Minimize(loss)
         prob = cp.Problem(obj, constraints=constraints)
         fun_value = prob.solve(
